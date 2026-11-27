@@ -1,0 +1,20 @@
+{
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.49.4",
+    "@std/crypto/timing-safe-equal": "jsr:@std/crypto@1.0.3/timing-safe-equal",
+    "@second-half/api/weekly": "../../../packages/api/src/weekly.ts",
+    "@second-half/contracts": "../../../packages/contracts/src/index.ts",
+    "@second-half/engine": "../../../packages/engine/src/index.ts"
+  },
+  "unstable": [
+    "sloppy-imports"
+  ],
+  "compilerOptions": {
+    "lib": [
+      "deno.ns",
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ]
+  }
+}

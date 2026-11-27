@@ -40,6 +40,10 @@ export interface RulesConfig {
   };
   strength: {
     max: number;
+    /** Strength lost per miss that grace doesn't cover. 0 = off. */
+    missCost: number;
+    /** Share of current strength lost each night, so strength settles where gains and decay meet. 0 = off. */
+    dailyDecay: number;
     idleWeekCost: number;
     fullGain: number;
     minimumGain: number;
@@ -70,10 +74,24 @@ export interface RulesConfig {
   levels: { goalsToClear: number };
   progress: {
     idleWeekDecay: number;
-    /** Goal progress (0..1) added by one full check-in of a habit that serves the goal, unless the goal has a program. */
+    /** @deprecated Per-check-in progress; replaced by consistent weeks (see below). Removed once the engine switches. */
     perFull: number;
-    /** Goal progress added by one minimum check-in. */
+    /** @deprecated See perFull. */
     perMinimum: number;
+    /**
+     * A week is "consistent" for a goal when its habits reach this share of their weekly targets
+     * (a minimum check-in counts as `minimumWeight` of a full one).
+     */
+    consistentWeekShare: number;
+    /** Weight of a minimum check-in toward the weekly target. */
+    minimumWeight: number;
+    /** Consistent weeks needed to lock in a goal (or reach verification for a milestone), by goal level. */
+    weeksToLockIn: Record<1 | 2 | 3 | 4, number>;
+    /**
+     * Milestone goals stop at this progress until a real achievement verifies them
+     * (Engine.verifyAchievement, or finishing their program).
+     */
+    milestoneVerifyAt: number;
     /** Progress removed from the in-progress goal in a setback's area when nothing there is at risk. */
     setbackLoss: number;
   };
@@ -84,6 +102,7 @@ export interface RulesConfig {
   adaptation: { ruleWeeks: number };
   program: { defaultThreshold: number };
   life: { defaultEndAge: number };
+  season: { weeks: number };
 }
 
 export const DEFAULT_RULES: RulesConfig = {
@@ -110,16 +129,24 @@ export const DEFAULT_RULES: RulesConfig = {
     getUpAfterPlays: 3,
     getUpHealth: 30,
   },
-  strength: { max: 100, idleWeekCost: 3, fullGain: 1, minimumGain: 0.5 },
+  strength: { max: 100, missCost: 0, dailyDecay: 0, idleWeekCost: 3, fullGain: 1, minimumGain: 0.5 },
   grace: { perMonth: 2, maxHeld: 4 },
   resistance: { max: 5, setbackAt: 5, afterSetback: 3, gamePlanDamageFactor: 0.5, maxEquippedPlans: 3 },
   risk: { missesToTrigger: 3, patternDays: 7, onTrigger: 25, setbackPressure: 10, perBadWeek: 25, fullCleanDay: 20, minimumCleanDay: 10, lostRestartProgress: 0.5 },
   levels: { goalsToClear: 4 },
-  progress: { idleWeekDecay: 0.08, perFull: 0.07, perMinimum: 0.03, setbackLoss: 0.05 },
+  progress: { idleWeekDecay: 0.08, perFull: 0.07,
+    perMinimum: 0.03,
+    setbackLoss: 0.05,
+    consistentWeekShare: 0.8,
+    minimumWeight: 0.5,
+    weeksToLockIn: { 1: 12, 2: 18, 3: 27, 4: 40 },
+    milestoneVerifyAt: 0.8,
+  },
   history: { days: 14 },
   maintenance: { maxWeeklyHabits: 6 },
   recovery: { healthBelow: 25, atRiskGoals: 2, days: 7, daysNeeded: 5, restoreHealth: 30 },
   adaptation: { ruleWeeks: 2 },
   program: { defaultThreshold: 3 },
   life: { defaultEndAge: 84 },
+  season: { weeks: 12 },
 };

@@ -46,7 +46,7 @@ function movable(goal: Goal, state: GameState): boolean {
  * - Missed: grace days absorb misses first (costliest misses first); a miss with no grace left costs health,
  *   and a second miss in a row on the same habit (its last two check-ins) costs `doubleMissFactor` × that.
  *   A grace day removes the damage, not the miss, so the streak still counts.
- * - Resistance: each reason given raises that Resistance by 1; doing a habit on a weekday it is usually
+ * - Resistance: a reason given raises that Resistance by 1 (at most 1 a night, however many habits report it); doing a habit on a weekday it is usually
  *   missed knocks that Resistance down by 1. A Resistance reported while at `setbackAt` causes a setback
  *   (halved by an equipped game plan) and, if no rule for it is in force, a rule adjustment; it then drops
  *   to `afterSetback`, so it cannot hit every day in a row.
@@ -104,7 +104,8 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
     const habit = habitsById.get(entry.habitId)!;
 
     if (entry.result === "missed") {
-      if (entry.reason) {
+      // A Resistance gains at most 1 a night, however many habits report it.
+      if (entry.reason && !reported.has(entry.reason)) {
         bump(entry.reason, 1);
         reported.add(entry.reason);
       }
