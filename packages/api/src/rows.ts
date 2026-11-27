@@ -31,6 +31,7 @@ export interface ProfileRow {
   best_level: number | null;
   last_review_on: string | null;
   level_names: Partial<Record<Level, string>> | null;
+  vision: string | null;
   score: number;
   credits: number;
   /** Bumped by every save; pass it back as the expected version. */
@@ -178,6 +179,7 @@ export function toGameState(snap: GameSnapshot): GameState {
     ...(snap.profile.best_level != null ? { bestLevel: snap.profile.best_level as Level } : {}),
     ...(snap.profile.last_review_on != null ? { lastReviewOn: snap.profile.last_review_on } : {}),
     ...(snap.profile.level_names != null ? { levelNames: snap.profile.level_names } : {}),
+    ...(snap.profile.vision != null ? { vision: snap.profile.vision } : {}),
     score: snap.profile.score,
     credits: snap.profile.credits,
     modes,
