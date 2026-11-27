@@ -221,7 +221,7 @@ export interface GameState {
 /* ---------- Events: what happened, for the UI and the scene to show ---------- */
 
 export type GameEvent =
-  | { type: "points"; score: number; credits: number; reason: LedgerKind }
+  | { type: "points"; score: number; credits: number; reason: LedgerKind; /** What earned it: habit, goal or program id. */ sourceId?: string }
   | { type: "grace_used"; habitId: string }
   | { type: "health_changed"; delta: number; reason: "miss" | "double_miss" | "habit" | "setback" | "recovery" }
   | { type: "strength_changed"; delta: number }

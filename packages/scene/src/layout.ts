@@ -83,3 +83,11 @@ export function athleteSpot(level: Level): [number, number, number] {
   const r = RING_OUTER[level - 1]! + (level === 1 ? 0.6 : 0.4);
   return groundPoint(r, 0);
 }
+
+/** Unit ground normal at (x, z), by central differences, as [x, y, z]. */
+export function normalAt(x: number, z: number, eps = 0.05): [number, number, number] {
+  const dx = (heightAt(x + eps, z) - heightAt(x - eps, z)) / (2 * eps);
+  const dz = (heightAt(x, z + eps) - heightAt(x, z - eps)) / (2 * eps);
+  const len = Math.hypot(dx, 1, dz);
+  return [-dx / len, 1 / len, -dz / len];
+}

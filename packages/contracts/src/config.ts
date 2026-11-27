@@ -54,8 +54,10 @@ export interface RulesConfig {
     maxEquippedPlans: number;
   };
   risk: {
-    /** Misses beyond grace within 7 days that put a system goal at risk. */
+    /** Misses beyond grace within `patternDays` days that put a system goal at risk. */
     missesToTrigger: number;
+    /** Window, in days, for the at-risk miss pattern. */
+    patternDays: number;
     /** Risk (0..100) a goal starts at when it goes at risk. */
     onTrigger: number;
     /** Risk added to an at-risk goal in the area a setback targets. */
@@ -111,7 +113,7 @@ export const DEFAULT_RULES: RulesConfig = {
   strength: { max: 100, idleWeekCost: 3, fullGain: 1, minimumGain: 0.5 },
   grace: { perMonth: 2, maxHeld: 4 },
   resistance: { max: 5, setbackAt: 5, afterSetback: 3, gamePlanDamageFactor: 0.5, maxEquippedPlans: 3 },
-  risk: { missesToTrigger: 3, onTrigger: 25, setbackPressure: 10, perBadWeek: 25, fullCleanDay: 20, minimumCleanDay: 10, lostRestartProgress: 0.5 },
+  risk: { missesToTrigger: 3, patternDays: 7, onTrigger: 25, setbackPressure: 10, perBadWeek: 25, fullCleanDay: 20, minimumCleanDay: 10, lostRestartProgress: 0.5 },
   levels: { goalsToClear: 4 },
   progress: { idleWeekDecay: 0.08, perFull: 0.07, perMinimum: 0.03, setbackLoss: 0.05 },
   history: { days: 14 },
