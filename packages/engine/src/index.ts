@@ -5,6 +5,12 @@ import {
   type RulesConfig,
   type WorldView,
 } from "@second-half/contracts";
+import { closeDay } from "./closeDay";
+import { quarterlyCheck } from "./risk";
+
+export { closeDay } from "./closeDay";
+export { quarterlyCheck, raiseRisk } from "./risk";
+export { checkLevels } from "./levels";
 
 /**
  * Game engine. Workstream A implements closeDay, closeWeek, startLifeEvent and equipGamePlan
@@ -17,10 +23,11 @@ export function createEngine(config: RulesConfig = DEFAULT_RULES): Engine {
   };
 
   return {
-    closeDay: notYet("closeDay"),
+    closeDay: (state, checkIn) => closeDay(state, checkIn, config),
     closeWeek: notYet("closeWeek"),
     startLifeEvent: notYet("startLifeEvent"),
     equipGamePlan: notYet("equipGamePlan"),
+    quarterlyCheck: (state, goalId, passed, date) => quarterlyCheck(state, goalId, passed, date, config),
     projectedFinalScore: (state) => projectedFinalScore(state, config),
     toWorldView,
   };
@@ -47,6 +54,7 @@ export function toWorldView(state: GameState): WorldView {
   return {
     level: state.level,
     cells: state.goals.map((g) => ({
+      goalId: g.id,
       area: g.area,
       level: g.level,
       status: g.status,

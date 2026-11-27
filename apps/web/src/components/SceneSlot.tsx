@@ -25,16 +25,18 @@ export function SceneSlot({ view, createScene = createPlaceholderScene, assetsBa
     if (!el) return;
     let cancelled = false;
     let handle: SceneHandle | null = null;
+    let unsubscribe: (() => void) | null = null;
     createScene(el, { assetsBaseUrl }).then((h) => {
       if (cancelled) return h.dispose();
       handle = h;
       scene.current = h;
-      h.onSelect((t) => latest.current.onSelect?.(t));
+      unsubscribe = h.onSelect((t) => latest.current.onSelect?.(t));
       if (latest.current.view) h.update(latest.current.view);
       latest.current.onReady?.(h);
     });
     return () => {
       cancelled = true;
+      unsubscribe?.();
       handle?.dispose();
       scene.current = null;
     };

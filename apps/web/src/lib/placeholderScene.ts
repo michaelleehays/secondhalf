@@ -37,6 +37,13 @@ export const createPlaceholderScene: CreateScene = async (container) => {
   /** Each area owns a 72° slice, starting at the top and going clockwise. */
   const sliceStart = (i: number) => -Math.PI / 2 - Math.PI / 5 + (i * 2 * Math.PI) / 5;
 
+  /** Resistance markers sit just outside the slice they target. */
+  const markerAt = (area: AreaId) => {
+    const { cx, cy, R } = geom();
+    const a = sliceStart(AREAS.indexOf(area)) + ((2 * Math.PI) / 5) * 0.82;
+    return { x: cx + Math.cos(a) * (R + 38), y: cy + Math.sin(a) * (R + 38) };
+  };
+
   const draw = (now: number) => {
     frame = 0;
     if (!ctx || disposed) return;
@@ -119,10 +126,7 @@ export const createPlaceholderScene: CreateScene = async (container) => {
     // Resistance markers sit just outside the slice they target.
     view.resistance.forEach((r) => {
       const i = AREAS.indexOf(r.targetArea);
-      const a = sliceStart(i) + (2 * Math.PI) / 5 * 0.82;
-      const d = R + 38;
-      const x = cx + Math.cos(a) * d;
-      const y = cy + Math.sin(a) * d;
+      const { x, y } = markerAt(r.targetArea);
       ctx.fillStyle = "#E5484D";
       // CreateScene gets no rules config, so scale against the default Resistance max.
       const s = Math.max(0, Math.min(1, r.strength / DEFAULT_RULES.resistance.max));
@@ -190,6 +194,11 @@ export const createPlaceholderScene: CreateScene = async (container) => {
     const lv = Math.min(view.level, 4);
     const ay = cy + (ring(lv) + ring(lv + 1)) / 2;
     if (Math.hypot(x - cx, y - ay) < 22) return selectCb({ kind: "athlete" });
+    const hit = view.resistance.find((r) => {
+      const m = markerAt(r.targetArea);
+      return Math.hypot(x - m.x, y - m.y) < 22;
+    });
+    if (hit) return selectCb({ kind: "resistance", id: hit.id });
     const d = Math.hypot(x - cx, y - cy);
     if (d <= vision) return selectCb({ kind: "vision", level: 5 });
     if (d > R) return selectCb({ kind: "home" });
@@ -219,6 +228,9 @@ export const createPlaceholderScene: CreateScene = async (container) => {
     },
     onSelect(cb) {
       selectCb = cb;
+      return () => {
+        if (selectCb === cb) selectCb = null;
+      };
     },
     dispose() {
       disposed = true;

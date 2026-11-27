@@ -1,6 +1,6 @@
 """Build the Second Half athlete with headless Blender (pip "bpy") and MPFB 2.
 
-Outputs (in ATHLETE_OUT_DIR, default assets/models):
+Outputs (in ATHLETE_OUT_DIR, default assets/models next to this script's folder):
   athlete.glb               full model for desktop
   athlete_mobile.glb        lighter model for phones (same rig, same morphs, same node names)
   athlete.manifest.json     node names, morph names and vertex counts, for the scene
@@ -15,8 +15,10 @@ Watch, WatchFace, Jacket, Wraps.
 Setup (once):
   pip install bpy==5.1.2
   git clone --depth 1 https://github.com/makehumancommunity/mpfb2
-  copy mpfb2/src/mpfb to ~/.config/blender/5.1/extensions/user_default/mpfb
-Run from the repo root:
+  copy mpfb2/src/mpfb to the Blender 5.1 user extensions folder, as .../extensions/user_default/mpfb:
+    Linux: ~/.config/blender/5.1/extensions/user_default
+    macOS: ~/Library/Application Support/Blender/5.1/extensions/user_default
+Run from anywhere:
   python3 assets/blender/build_athlete.py
 """
 import importlib
@@ -31,7 +33,8 @@ from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 from mathutils.interpolate import poly_3d_calc
 
-OUT_DIR = os.environ.get("ATHLETE_OUT_DIR", "assets/models")
+OUT_DIR = os.environ.get(
+    "ATHLETE_OUT_DIR", os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")))
 
 # ---------------------------------------------------------------- tunables
 # Average 42-year-old build, and the two morph extremes the scene blends between.
@@ -520,7 +523,8 @@ def export(path, objects):
 
 
 def stats(meshes):
-    return {o.name: {"vertices": len(o.data.vertices), "triangles": sum(len(p.vertices) - 2 for p in o.data.polygons)}
+    # Blender vertex counts. glTF counts run higher: vertices split at UV seams and material edges.
+    return {o.name: {"blenderVertices": len(o.data.vertices), "triangles": sum(len(p.vertices) - 2 for p in o.data.polygons)}
             for o in meshes}
 
 
@@ -586,4 +590,5 @@ def main():
     print(json.dumps(manifest, indent=2))
 
 
-main()
+if __name__ == "__main__":
+    main()

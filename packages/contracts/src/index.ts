@@ -69,6 +69,8 @@ export interface HabitDay {
   date: IsoDate;
   result: CheckInResult;
   reason?: ResistanceId;
+  /** True when a grace day covered this miss. Graced misses do not count toward the at-risk pattern. */
+  graced?: boolean;
 }
 
 export interface Habit {
@@ -200,6 +202,11 @@ export interface GameState {
   /** IANA time zone, e.g. "America/New_York". The weekly rollover runs Sunday night in this zone. */
   timezone: string;
   level: Level;
+  /**
+   * Highest level ever reached. Level-clear credits pay only when a level above this is cleared.
+   * Missing means the same as `level` (older saved games).
+   */
+  bestLevel?: Level;
   score: number;
   credits: number;
   modes: Record<AreaId, AreaMode>;
@@ -219,7 +226,7 @@ export interface GameState {
 /* ---------- Events: what happened, for the UI and the scene to show ---------- */
 
 export type GameEvent =
-  | { type: "points"; score: number; credits: number; reason: LedgerKind }
+  | { type: "points"; score: number; credits: number; reason: LedgerKind; /** What earned it: habit, goal or program id. */ sourceId?: string }
   | { type: "grace_used"; habitId: string }
   | { type: "health_changed"; delta: number; reason: "miss" | "double_miss" | "habit" | "setback" | "recovery" }
   | { type: "strength_changed"; delta: number }
@@ -252,6 +259,11 @@ export interface Engine {
   /** User-declared life event (illness, emergency, travel). Starts Recovery if allowed this season. */
   startLifeEvent(state: GameState, date: IsoDate): StepResult;
   equipGamePlan(state: GameState, gamePlanId: string, equipped: boolean): StepResult;
+  /**
+   * Result of a locked-in milestone goal's quarterly check (e.g. one benchmark 5K, fund still above $5,000).
+   * A pass sets lastQuarterlyCheck. A fail puts the goal at risk at rules.risk.onTrigger.
+   */
+  quarterlyCheck(state: GameState, goalId: string, passed: boolean, date: IsoDate): StepResult;
   /** Projected final score at endAge at the current pace. */
   projectedFinalScore(state: GameState): number;
   /** What the 3D scene needs to draw. */
@@ -261,6 +273,8 @@ export interface Engine {
 /* ---------- Scene interface (implemented by packages/scene) ---------- */
 
 export interface CellView {
+  /** Id of the goal this cell shows; events and attackingGoalId refer to it. */
+  goalId: string;
   area: AreaId;
   level: Exclude<Level, 5>;
   status: GoalStatus;
@@ -285,15 +299,24 @@ export interface WorldView {
   inRecovery: boolean;
 }
 
-export type SceneTarget = { kind: "home" } | { kind: "athlete" } | { kind: "area"; area: AreaId } | { kind: "vision" };
+export type SceneTarget =
+  | { kind: "home" }
+  | { kind: "athlete" }
+  | { kind: "area"; area: AreaId }
+  | { kind: "vision" }
+  | { kind: "resistance"; id: ResistanceId };
 
 export interface SceneHandle {
   update(view: WorldView): void;
   /** Animate an event (setback, locked_in, level_lost...). */
   play(event: GameEvent): void;
   focus(target: SceneTarget): void;
-  /** Called when the user taps the athlete, an area cell or the summit. */
-  onSelect(cb: (target: SceneTarget & { level?: Level }) => void): void;
+  /**
+   * Called when the user taps the athlete, an area cell (with its level), the summit ("vision"),
+   * or empty ground outside the mountain ("home", meaning: go back to the full view).
+   * Returns a function that unsubscribes the callback.
+   */
+  onSelect(cb: (target: SceneTarget & { level?: Level }) => void): () => void;
   dispose(): void;
 }
 

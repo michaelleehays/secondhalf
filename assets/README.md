@@ -24,7 +24,7 @@ Character pipeline and models. See `docs/workstreams/D-character.md`.
 | --- | --- | --- |
 | `body` | `Skin`, `Hair` | Hair is the buzz-cut slot on the scalp. |
 | `eyes` | `Eyes` | |
-| `shorts` | `Tights` | Fight shorts. Always on. |
+| `shorts` | `Tights` | Fight shorts. Always on. This node was called `tights` before; the material name is unchanged. |
 | `kit_shoes` | `Shoe`, `ShoeSole` | Running shoes. Soles sit on the floor, so no height change is needed. |
 | `kit_watch` | `Watch`, `WatchFace` | Training watch, left wrist. |
 | `kit_jacket` | `Jacket` | Fitted training jacket. Sleeves stop above the watch. |
@@ -37,19 +37,26 @@ Phone vs desktop (from `athlete.manifest.json`, current build):
 
 | | Desktop | Phone |
 | --- | --- | --- |
-| Body vertices | 13,380 | 4,015 |
-| All meshes, vertices | 17,826 | 5,804 |
+| Body, Blender vertices | 13,380 | 4,015 |
+| All meshes, Blender vertices | 17,826 | 5,804 |
 | File size | 1.7 MB | 0.6 MB |
+
+Vertex counts here and in the manifest (`blenderVertices`) are Blender's. three.js reports more,
+because glTF splits vertices at UV seams and material edges.
 
 ## Rebuilding
 
 ```bash
 pip install bpy==5.1.2
 git clone --depth 1 https://github.com/makehumancommunity/mpfb2
-mkdir -p ~/.config/blender/5.1/extensions/user_default
-cp -r mpfb2/src/mpfb ~/.config/blender/5.1/extensions/user_default/mpfb
-python3 assets/blender/build_athlete.py   # from the repo root, takes a few seconds
+EXT=~/.config/blender/5.1/extensions/user_default                          # Linux
+# EXT="$HOME/Library/Application Support/Blender/5.1/extensions/user_default"  # macOS
+mkdir -p "$EXT"
+cp -r mpfb2/src/mpfb "$EXT/mpfb"
+python3 assets/blender/build_athlete.py   # from any folder, takes a few seconds
 ```
+
+Output goes to `assets/models` beside the script, wherever you run it from.
 
 Set `ATHLETE_OUT_DIR` to write somewhere else. Every tunable (build, kit placement, phone
 reduction, colours) is a named constant at the top of the script.
@@ -77,18 +84,30 @@ The MakeHuman asset sites (`files.makehumancommunity.org`, `static.makehumancomm
 blocked from the cloud workspace. Please download these on your computer and add them to the
 repo under `assets/vendor/makehuman/` (or send them over):
 
-1. **`makehuman_system_assets`** (CC0), from
-   https://static.makehumancommunity.org/asset_packs/makehuman_system_assets.html.
-   The build will use these files from it:
-   - `skins/`: a male skin (for example `young_caucasian_male.mhmat` and its textures), plus any
-     middle-aged or darker-tone male skins the pack includes.
-   - `eyes/low-poly.mhclo` and the eye textures
-   - `eyebrows/eyebrow001.mhclo`
-   - `eyelashes/eyelashes01.mhclo`
-   - `teeth/teeth_base.mhclo`, `tongue/tongue01.mhclo`
-2. **Clothing and shoes** (optional, for real garments). From the pack index at
-   https://static.makehumancommunity.org/assets/assetpacks.html, download only packs whose page
-   says **CC0**. Look for running shoes, a fitted jacket or track top, and shorts. Please include
-   each pack's page or license text with the download so it can be logged.
+Download whole asset folders, not single files. Each `.mhclo` needs the `.obj`, `.mhmat` and
+textures that sit beside it, and a skin `.mhmat` needs its textures. Once the build uses them,
+commit only the folders it actually uses.
+
+All packs are listed on the asset pack index:
+https://static.makehumancommunity.org/assets/assetpacks.html. Download these four, each CC0:
+
+1. **Makehuman system assets** (required). The build uses these folders from it, each complete:
+   - `eyes/` (the folder with `low-poly.mhclo`, plus the eye textures)
+   - `teeth/` (`teeth_base.mhclo`) and `tongue/` (`tongue01.mhclo`)
+   - `skins/`, if it holds a usable male skin
+2. **Skins 02**: natural male skins. Take the whole folder for each skin we pick.
+3. **Eyebrows 01**
+4. **Eyelashes 01**
+
+Check that each pack's page says **CC0** before downloading, and keep its page or license text
+so it can be logged in `LICENSES.md`.
+
+Clothing and shoes are optional, for replacing the stand-in kit later. Take them from the same
+index, CC0 packs only: running shoes, a fitted jacket or track top, and shorts, each garment's
+whole folder.
+
+**Installing a pack:** either unzip it into MPFB's user data folder, or in Blender use MPFB's
+**Apply assets → Library Settings → Load pack from zip file**. For the repo, copy only the folders
+the build uses into `assets/vendor/makehuman/`.
 
 Do not use packs marked CC-BY, non-commercial or "unknown". They are outside our licence rule.

@@ -60,8 +60,21 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
   }, [sheet]);
 
   const onSelect = useCallback((t: SceneTarget & { level?: Level }) => {
-    // Area, athlete and Vision sheets land in the next pull request. For now the scene just focuses.
-    scene.current?.focus(t);
+    // The area, athlete, Vision and Resistance sheets land in the next pull request (item 4).
+    // Until then every tap only moves the scene's focus.
+    switch (t.kind) {
+      case "home":
+      case "athlete":
+      case "area":
+      case "vision":
+      case "resistance":
+        scene.current?.focus(t);
+        return;
+      default: {
+        const unhandled: never = t;
+        return unhandled;
+      }
+    }
   }, []);
 
   const closeDay = async () => {
