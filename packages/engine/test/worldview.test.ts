@@ -24,9 +24,3 @@ describe("projectedFinalScore", () => {
     expect(engine.projectedFinalScore(SAMPLE_STATE)).toBeGreaterThan(SAMPLE_STATE.score);
   });
 });
-
-describe("rules not yet implemented", () => {
-  it("closeDay throws until workstream A lands", () => {
-    expect(() => createEngine().closeDay(SAMPLE_STATE, { date: "2026-11-26", entries: [] })).toThrow(/workstream A/);
-  });
-});
