@@ -26,6 +26,7 @@ export interface RulesConfig {
   /** Score multiplier by level (index = level). */
   levelMultiplier: Record<1 | 2 | 3 | 4 | 5, number>;
   health: {
+    max: number;
     start: number;
     missCost: number;
     /** Multiplier on missCost for a second miss in a row on the same habit. */
@@ -38,6 +39,7 @@ export interface RulesConfig {
     getUpHealth: number;
   };
   strength: {
+    max: number;
     idleWeekCost: number;
     fullGain: number;
     minimumGain: number;
@@ -82,6 +84,7 @@ export const DEFAULT_RULES: RulesConfig = {
   credits: { habitFull: 10, habitMinimum: 4, programWeek: 25, goalLockedInPerLevel: 100, levelCleared: 500, weeklyReview: 10 },
   levelMultiplier: { 1: 1, 2: 1.25, 3: 1.5, 4: 1.75, 5: 2 },
   health: {
+    max: 100,
     start: 80,
     missCost: 6,
     doubleMissFactor: 2,
@@ -92,7 +95,7 @@ export const DEFAULT_RULES: RulesConfig = {
     getUpAfterPlays: 3,
     getUpHealth: 30,
   },
-  strength: { idleWeekCost: 3, fullGain: 1, minimumGain: 0.5 },
+  strength: { max: 100, idleWeekCost: 3, fullGain: 1, minimumGain: 0.5 },
   grace: { perMonth: 2, maxHeld: 4 },
   resistance: { max: 5, setbackAt: 5, gamePlanDamageFactor: 0.5, maxEquippedPlans: 3 },
   risk: { missesToTrigger: 3, perBadWeek: 25, fullCleanDay: 20, minimumCleanDay: 10, lostRestartProgress: 0.5 },
