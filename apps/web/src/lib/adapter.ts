@@ -29,8 +29,16 @@ export class ComingSoonError extends Error {
   }
 }
 
+/** A save was refused because the game changed elsewhere (another device or the weekly job). Carries the latest game. */
+export class StaleGameError extends Error {
+  constructor(readonly game: SavedGame) {
+    super("The game changed since it was loaded");
+    this.name = "StaleGameError";
+  }
+}
+
 /** The engine's stubs throw "... is not implemented yet ..."; anything else is a real failure. */
-const isStub = (err: unknown) => err instanceof Error && /not implemented/i.test(err.message);
+export const isStub = (err: unknown) => err instanceof Error && /not implemented/i.test(err.message);
 
 /**
  * Everything the screens need from the game. Today the real engine runs in the browser and the
@@ -38,6 +46,8 @@ const isStub = (err: unknown) => err instanceof Error && /not implemented/i.test
  */
 export interface GameAdapter {
   readonly rules: RulesConfig;
+  /** "local": saved on this device, demo controls on. "remote": the player's account; the server runs the week. */
+  readonly mode: "local" | "remote";
   /** The saved game, or the sample player on first run. `today` is the device date. */
   load(today: IsoDate): Promise<SavedGame>;
   closeDay(game: SavedGame, checkIn: CheckIn): Promise<GameStep>;
@@ -92,6 +102,7 @@ export function createLocalAdapter(options: LocalAdapterOptions = {}): GameAdapt
 
   return {
     rules,
+    mode: "local",
     async load(today) {
       const saved = readSaved(store);
       if (!saved) return save(fresh(today));
