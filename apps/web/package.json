@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node scripts/copy-assets.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/copy-assets.mjs",
     "build": "next build",
     "start": "next start",
     "typecheck": "next typegen && tsc -p tsconfig.json --noEmit"
@@ -12,6 +14,7 @@
   "dependencies": {
     "@second-half/contracts": "0.1.0",
     "@second-half/engine": "0.1.0",
+    "@second-half/scene": "0.1.0",
     "next": "16.4.6",
     "react": "19.3.1",
     "react-dom": "19.3.1"

@@ -13,7 +13,7 @@ describe("HUD model", () => {
     expect(hud.health).toBe(72);
     expect(hud.healthTone).toBe("ok");
     expect(hud.strength).toBe(64);
-    expect(hud.atRisk).toEqual([{ goalId: "money-101", label: "Money 101", risk: 60 }]);
+    expect(hud.atRisk).toEqual([{ goalId: "money-101", area: "money", label: "Money 101", risk: 60 }]);
     expect(hud.recovery).toBeNull();
   });
 
@@ -49,5 +49,12 @@ describe("HUD meters", () => {
     const hud = hudModel(SAMPLE_STATE, rules);
     expect(hud.healthMax).toBe(120);
     expect(hud.strengthMax).toBe(DEFAULT_RULES.strength.max);
+  });
+});
+
+describe("recovery habit", () => {
+  it("matches the engine's '<title>: <minimum>' recovery title", () => {
+    const s = { ...SAMPLE_STATE, recovery: { cause: "auto" as const, startedOn: "2026-11-24", day: 1, daysDone: 0, habitTitle: "Tempo run: 15-minute easy jog" } };
+    expect(activeHabits(s).map((h) => h.id)).toEqual(["run"]);
   });
 });
