@@ -29,7 +29,8 @@ export const POSED_BONES = [
 ] as const;
 export type PosedBone = (typeof POSED_BONES)[number];
 
-export type Euler3 = [number, number, number];
+/** Three angles (x, y, z). A Float64Array, so writing them every frame never boxes a number. */
+export type Euler3 = Float64Array;
 type Euler3In = readonly [number, number, number];
 
 export interface Pose {
@@ -146,28 +147,54 @@ export const HIT_DECAY = 2.2;
 /** A pose with every bone at zero. Reuse one per athlete and pass it to poseAt. */
 export function emptyPose(): Pose {
   const bones = {} as Record<PosedBone, Euler3>;
-  for (const b of POSED_BONES) bones[b] = [0, 0, 0];
-  return { bones, hips: [0, 0, 0], root: [0, 0, 0], lift: 0 };
+  for (const b of POSED_BONES) bones[b] = new Float64Array(3);
+  return { bones, hips: new Float64Array(3), root: new Float64Array(3), lift: 0 };
+}
+
+/**
+ * Scratch for the per-frame maths: [0..2] an Euler delta, [3] a layer weight. Passing decimals as
+ * call arguments can box them (allocate) when V8 doesn't inline the call, so the hot path hands
+ * them over through this typed array instead.
+ */
+const D = new Float64Array(4);
+const W = 3;
+
+/** Adds D[0..2] to `e`. */
+function addD(e: Euler3) {
+  e[0] = e[0]! + D[0]!;
+  e[1] = e[1]! + D[1]!;
+  e[2] = e[2]! + D[2]!;
+}
+function delta(x: number, y: number, z: number) {
+  D[0] = x;
+  D[1] = y;
+  D[2] = z;
 }
 
 /** Builds the full pose for this frame into `out` (allocated when omitted). */
 export function poseAt(input: PoseInput, out: Pose = emptyPose()): Pose {
-  for (let i = 0; i < POSED_BONES.length; i++) set(out.bones[POSED_BONES[i]!], 0, 0, 0);
-  set(out.hips, 0, 0, 0);
-  set(out.root, 0, 0, 0);
+  for (let i = 0; i < POSED_BONES.length; i++) out.bones[POSED_BONES[i]!].fill(0);
+  out.hips.fill(0);
+  out.root.fill(0);
   out.lift = 0;
-  const up = 1 - clamp01(input.down);
+  const down = clamp01(input.down);
+  const up = 1 - down;
 
-  add(out, STANDING, 1);
-  add(out, SLUMPED, clamp01(input.slump) * up);
-  add(out, HIT, clamp01(input.hit));
-  add(out, DOWN, clamp01(input.down));
+  D[W] = 1;
+  add(out, STANDING);
+  D[W] = clamp01(input.slump) * up;
+  add(out, SLUMPED);
+  D[W] = clamp01(input.hit);
+  add(out, HIT);
+  D[W] = down;
+  add(out, DOWN);
 
   // Celebration: arms rise, hold, then come down, with two small hops while they are up.
   const c = clamp01(input.celebrate);
   if (c > 0 && c < 1) {
     const raise = smooth(c / 0.2) * (1 - smooth((c - 0.75) / 0.25));
-    add(out, ARMS_UP, raise * up);
+    D[W] = raise * up;
+    add(out, ARMS_UP);
     out.lift += Math.max(0, Math.sin(c * Math.PI * 4)) * 0.12 * raise * up;
   }
 
@@ -176,25 +203,31 @@ export function poseAt(input: PoseInput, out: Pose = emptyPose()): Pose {
   if (walk > 0) {
     const ph = input.walkPhase ?? 0;
     const sw = Math.sin(ph);
-    addTo(out.bones.LeftUpLeg, 0.45 * sw * walk, 0, 0);
-    addTo(out.bones.RightUpLeg, -0.45 * sw * walk, 0, 0);
-    addTo(out.bones.LeftLeg, -0.6 * Math.max(0, -sw) * walk, 0, 0);
-    addTo(out.bones.RightLeg, -0.6 * Math.max(0, sw) * walk, 0, 0);
-    addTo(out.bones.LeftArm, -0.35 * sw * walk, 0, 0);
-    addTo(out.bones.RightArm, 0.35 * sw * walk, 0, 0);
-    addTo(out.bones.Spine1, 0.04 * walk, 0.06 * sw * walk, 0);
-    addTo(out.hips, 0, 0.025 * Math.abs(Math.cos(ph)) * walk - 0.02 * walk, 0);
+    const b = out.bones;
+    b.LeftUpLeg[0] = b.LeftUpLeg[0]! + 0.45 * sw * walk;
+    b.RightUpLeg[0] = b.RightUpLeg[0]! - 0.45 * sw * walk;
+    b.LeftLeg[0] = b.LeftLeg[0]! - 0.6 * Math.max(0, -sw) * walk;
+    b.RightLeg[0] = b.RightLeg[0]! - 0.6 * Math.max(0, sw) * walk;
+    b.LeftArm[0] = b.LeftArm[0]! - 0.35 * sw * walk;
+    b.RightArm[0] = b.RightArm[0]! + 0.35 * sw * walk;
+    b.Spine1[0] = b.Spine1[0]! + 0.04 * walk;
+    b.Spine1[1] = b.Spine1[1]! + 0.06 * sw * walk;
+    out.hips[1] = out.hips[1]! + 0.025 * Math.abs(Math.cos(ph)) * walk - 0.02 * walk;
   }
 
   // Breathing idle: a slow chest rise and a little sway, gone when down.
   const breath = Math.sin(input.time * 1.6) * up;
   const sway = Math.sin(input.time * 0.7) * up;
-  addTo(out.bones.Spine1, -0.015 * breath, 0, 0.01 * sway);
-  addTo(out.bones.Spine2, -0.02 * breath, 0, 0);
-  addTo(out.bones.LeftShoulder, 0, 0, 0.015 * breath);
-  addTo(out.bones.RightShoulder, 0, 0, -0.015 * breath);
-  addTo(out.bones.Head, 0.01 * breath, 0.02 * sway, 0);
-  addTo(out.hips, 0.006 * sway, 0.004 * breath, 0);
+  const b = out.bones;
+  b.Spine1[0] = b.Spine1[0]! - 0.015 * breath;
+  b.Spine1[2] = b.Spine1[2]! + 0.01 * sway;
+  b.Spine2[0] = b.Spine2[0]! - 0.02 * breath;
+  b.LeftShoulder[2] = b.LeftShoulder[2]! + 0.015 * breath;
+  b.RightShoulder[2] = b.RightShoulder[2]! - 0.015 * breath;
+  b.Head[0] = b.Head[0]! + 0.01 * breath;
+  b.Head[1] = b.Head[1]! + 0.02 * sway;
+  out.hips[0] = out.hips[0]! + 0.006 * sway;
+  out.hips[1] = out.hips[1]! + 0.004 * breath;
   return out;
 }
 
@@ -209,27 +242,25 @@ function layerBones(layer: PoseLayer) {
   return list;
 }
 
-function add(out: Pose, layer: PoseLayer, w: number) {
+/** Adds `layer` to `out`, weighted by D[W]. */
+function add(out: Pose, layer: PoseLayer) {
+  const w = D[W]!;
   if (w <= 0) return;
   const list = layerBones(layer);
   for (let i = 0; i < list.length; i++) {
     const { bone, e } = list[i]!;
-    addTo(out.bones[bone], e[0] * w, e[1] * w, e[2] * w);
+    delta(e[0] * w, e[1] * w, e[2] * w);
+    addD(out.bones[bone]);
   }
-  if (layer.hips) addTo(out.hips, layer.hips[0] * w, layer.hips[1] * w, layer.hips[2] * w);
-  if (layer.root) addTo(out.root, layer.root[0] * w, layer.root[1] * w, layer.root[2] * w);
+  if (layer.hips) {
+    delta(layer.hips[0] * w, layer.hips[1] * w, layer.hips[2] * w);
+    addD(out.hips);
+  }
+  if (layer.root) {
+    delta(layer.root[0] * w, layer.root[1] * w, layer.root[2] * w);
+    addD(out.root);
+  }
   out.lift += (layer.lift ?? 0) * w;
-}
-
-function set(e: Euler3, x: number, y: number, z: number) {
-  e[0] = x;
-  e[1] = y;
-  e[2] = z;
-}
-function addTo(e: Euler3, x: number, y: number, z: number) {
-  e[0] += x;
-  e[1] += y;
-  e[2] += z;
 }
 
 const clamp01 = (n: number) => (Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);

@@ -19,13 +19,17 @@ scene.dispose();
 | File | Purpose |
 | --- | --- |
 | `src/layout.ts` | Mountain geometry: height field, ring radii, area sectors, cell index. Pure, tested. |
-| `src/cells.ts` | `CellView` to look (tint, progress sweep, risk pulse, dimming). Pure, tested. |
-| `src/terrain.ts` | Terrain mesh and shader. Cell colours are computed per fragment for crisp edges. |
-| `src/camera.ts` | Camera shots for `home`, `area`, `athlete`, `vision`, and the drag-to-turn rig. |
+| `src/cells.ts` | `CellView` to look (brightness, worked share, haze, linework, risk pulse). Pure, tested. |
+| `src/terrain.ts` | Monochrome terrain mesh and shader: ridge and ring lines, haze and effects per fragment. |
+| `src/labels.ts`, `src/text.ts` | Section names around the base and level labels (101, 201, ...) laid on the slope. |
+| `src/trailLayout.ts` | Where the trail runs, the climbed point, milestone stops and moments. Pure, tested. |
+| `src/trail.ts` | The trail ribbon (solid climbed, dashed ahead), stops with titles, moment markers, claim flags. |
+| `src/framing.ts` | Free screen area from `setInsets`, view offset, and how close the athlete shot comes. Pure, tested. |
+| `src/camera.ts` | Camera shots for every target, 360° orbit with damping, and inset-aware framing. |
 | `src/poses.ts` | Procedural poses (idle breathing, slump, hit, celebration, down). Pure, tested. |
 | `src/athlete.ts` | Wraps the athlete glTF: morphs from `build`, poses on the Mixamo bones, kit toggles. |
 | `src/resistance.ts` | Resistance markers (size and glow by strength) and dashed attack lines. |
-| `src/walker.ts` | Walks the athlete between level spots at walking pace. Pure, tested. |
+| `src/walker.ts` | Walks the athlete to their spot on the trail at walking pace. Pure, tested. |
 | `src/burst.ts` | Gold ring burst for `level_up`. |
 | `src/createScene.ts` | `createScene`: renderer, lights, input, loop, events, `SceneHandle`. |
 | `demo/` | Demo page, not shipped: `npm run demo -w @second-half/scene`. |
@@ -52,22 +56,54 @@ Kit nodes (`kit_jacket`, `kit_shoes`, `kit_watch`, `kit_wraps`) are hidden. Ther
 clips yet, so the rig is posed procedurally: rotations in character space, converted to each bone's
 local frame. When workstream D ships clips, a mixer can drive the rest pose and these poses layer on top.
 
-## Cell looks
+## The mountain
 
-| Status | Look |
+No area colours. The mountain is rock and snow with contour lines; the five sections are carved by
+bright ridge lines, and the levels by subtle ring lines. Section names lie on the plain around the
+base, and each cell carries its level (101, 201, ...).
+
+| Cell | Look |
 | --- | --- |
-| `locked_in` | Full area colour |
-| `in_progress` | Area colour sweeps across the sector by `progress` |
-| `at_risk` | Weaker colour, red pulse that grows with `risk` |
-| `lost` | Dark red |
-| `open` | Bare ground, slightly lit |
-| `hidden` | Bare ground in shadow |
-| `frozen` (any status) | Dimmed to 55% |
+| `locked_in` (claimed) | A little brighter, brighter linework, a planted flag |
+| `in_progress` | The worked share of the slice is a little brighter |
+| `at_risk` | A restrained red pulse that grows with `risk` (the one accent) |
+| `lost` | Darkened |
+| `open` | Bare rock |
+| `hidden`, or `frozen` (above the player's level) | Unexplored: under a light haze, faint lines and level label |
+
+## The trail
+
+`WorldView.trail` is the section being worked. A path climbs it in switchbacks from the base of 101
+to the edge of the Vision, staying inside the slice:
+
+- **Climbed** (solid): up to the first level not locked in, part-way up its band by `progress`.
+  The athlete stands there, facing out from the mountain, and walks there when it changes.
+- **Ahead** (dashed, dimmer): the rest of the way up.
+- **Milestone stops**: at the top of each level's band, a flag when locked in or a cairn ahead,
+  with a label "201 · MOMENTUM / Run a 10K" (names from `levelNames`).
+- **Moments** (`trail.moments`): beside the climbed part of their goal's band, oldest lowest.
+  Locked in and verified get small flags, setbacks small red spikes, at risk a red ring, lost ground
+  a dark bar, others a dot. Moments with no goal on the trail are left off.
+
+Claimed cells in other sections carry a flag at their centre. With no trail, the athlete stands at
+the edge of the current level's ring in the Body slice, as before. Home turns to face the trail's
+section.
+
+## Camera
+
+- Drag (mouse or touch) orbits all the way round the mountain, with damping after release. A focus
+  change comes back round the short way.
+- `setInsets({ top, right, bottom, left })`: the app reports the screen it covers (CSS pixels).
+  Focused shots (athlete, area, Vision, Resistance) centre their subject in what's left, through a
+  camera view offset, so taps still pick exactly. The athlete shot comes in close enough for the
+  figure to fill the free height: large beside a right-side panel, or above a bottom sheet. Home
+  stays whole-screen.
+- With no insets reported, focused shots assume a bottom sheet over the lower 40%.
 
 ## Resistance and events
 
-Each `WorldView.resistance` entry gets a marker just outside the 101 ring, centred on its target
-area's slice, sized and lit by strength (1..5). When `attackingGoalId` resolves to a cell, a dashed
+Each `WorldView.resistance` entry gets a marker just outside the 101 ring, a little to one side of
+its target area's middle (opposite where the trail sets off), sized and lit by strength (1..5). When `attackingGoalId` resolves to a cell, a dashed
 line marches from the marker to that cell. Tapping a marker reports `{ kind: "resistance", id }`.
 
 | Event | What the scene does |
@@ -75,14 +111,13 @@ line marches from the marker to that cell. Tapping a marker reports `{ kind: "re
 | `at_risk` | Strong red pulse on the cell |
 | `risk_cleared` | Calm pale flash on the cell |
 | `ground_lost` | The cell darkens and shakes; small camera shake |
-| `locked_in` | Athlete celebrates; the cell flashes its area colour |
+| `locked_in` | Athlete celebrates; the cell flashes light |
 | `level_up` | Athlete celebrates; gold band rises from the new level's ring; that ring's cells flash gold |
 | `level_lost` | Small flinch. The walk back down comes from the next `update` |
 | `resistance_changed`, `setback` | The marker flares |
 | `recovery_started` | Cool flash. The light stays cooler while `inRecovery` is true |
 
-The athlete walks to the edge of the current level's ring in the Body slice whenever `level`
-changes. Per-cell effects find their cell through `CellView.goalId`.
+Per-cell effects find their cell through `CellView.goalId`.
 
 ## Performance and quality
 
@@ -105,11 +140,13 @@ frames). The chosen level is on the canvas as `data-quality`. There are no shado
 Rendering stops while the tab is hidden (`visibilitychange`) or the container is off-screen
 (`IntersectionObserver`), and resumes without a time jump.
 
-The per-frame loop creates no objects: per-frame numbers live in a `Float64Array`, loops over maps
-use arrays, and poses, shots, normals and colours are written into reused objects. Checked with
-the DevTools heap sampler (inlining off, 5 s at each quality): what remains under the scene's own
-frame function averages under 16 bytes a frame, which is V8 number boxing, not objects; the rest
-is inside three.js's renderer.
+The per-frame loop creates no objects: per-frame numbers live in typed arrays (the clock, pose
+angles, the pose maths' scratch), loops over maps use arrays, and poses, shots, framing rects,
+normals and colours are written into reused objects. The trail, labels and flags are rebuilt only
+on `update`. Checked two ways: Node microbenchmarks of each per-frame function (300,000 calls
+each, counting young-generation GCs: at most a handful, about one boxed number a call), and the
+DevTools heap sampler in the browser, where what is left is V8 number boxing and three.js's own
+renderer allocations.
 
 Textures: colour maps (`map`, `emissiveMap`, sheen and specular colour) are set to sRGB, every other
 texture slot to linear, with anisotropic filtering up to 8x. The model's own materials are kept,
@@ -138,5 +175,5 @@ measurement of a phone GPU; a real mid-range Android device should be checked be
 
 ## Not yet
 
-HTML labels, and a kit API (the contract has no kit field yet).
+A kit API (the contract has no kit field yet).
 Tapping the plain beyond the mountain reports `{ kind: "home" }`.

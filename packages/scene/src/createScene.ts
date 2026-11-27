@@ -5,8 +5,12 @@ import type { AreaId, CreateScene, GameEvent, Level, ResistanceId, SceneHandle, 
 import { athleteModelUrl, createAthlete, type Athlete } from "./athlete";
 import { createRingBurst } from "./burst";
 import { CameraRig } from "./camera";
-import { RING_OUTER, athleteSpot, cellIndex, heightAt, normalAt, ringAt, sectorAt } from "./layout";
-import { AREA_HEX, WORLD_HEX } from "./palette";
+import { cellLooks } from "./cells";
+import type { Insets } from "./framing";
+import { createMountainLabels } from "./labels";
+import { RING_OUTER, athleteSpot, cellIndex, heightAt, normalAt, ringAt, sectorAt, sectorMidRad } from "./layout";
+import { createTrailLayer } from "./trail";
+import { WORLD_HEX } from "./palette";
 import { createResistanceLayer, type AttackTarget } from "./resistance";
 import { AutoQuality, qualitySettings, type Quality, type QualityLevel } from "./quality";
 import { createTerrain, type Terrain } from "./terrain";
@@ -19,8 +23,8 @@ export type SceneOptions = Parameters<CreateScene>[1];
 
 /** Pointer travel (px) beyond which a press counts as a drag, not a tap. */
 const DRAG_PX = 6;
-/** Radians of yaw per pixel dragged. */
-const YAW_PER_PX = 0.004;
+/** Radians of orbit per pixel dragged: about one full turn across 1000 px. */
+const ORBIT_PER_PX = 0.0063;
 
 /**
  * Builds the 3D world inside `container`. The scene holds no game logic: it draws the latest
@@ -61,8 +65,7 @@ export const createScene: CreateScene = async (container, options) => {
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
   /** Resistance id to the area its marker stands in, from the latest view (for the camera). */
   const resistanceAreas = new Map<string, AreaId>();
-  // Focused subjects sit in the upper part of the screen, clear of the app's bottom sheets.
-  const rig = new CameraRig(camera, (id) => resistanceAreas.get(id), FOCUSED_SUBJECT_Y);
+  const rig = new CameraRig(camera, (id) => resistanceAreas.get(id));
 
   const hemi = new THREE.HemisphereLight(LIGHT.hemiWarm, 0x1a1612, 1.6);
   scene.add(hemi);
@@ -83,6 +86,10 @@ export const createScene: CreateScene = async (container, options) => {
   scene.add(terrain.mesh, terrain.extras);
   const resistance = createResistanceLayer();
   scene.add(resistance.group);
+  const labels = createMountainLabels();
+  scene.add(labels.group);
+  const trail = createTrailLayer();
+  scene.add(trail.group);
   const burst = createRingBurst(WORLD_HEX.summit);
   scene.add(burst.mesh);
 
@@ -129,6 +136,7 @@ export const createScene: CreateScene = async (container, options) => {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    rig.setViewport(w, h);
   };
   const ro = new ResizeObserver(resize);
   ro.observe(container);
@@ -162,27 +170,43 @@ export const createScene: CreateScene = async (container, options) => {
   const selectCbs: ((t: Selection) => void)[] = [];
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
-  let press: { x: number; y: number; yaw: number; moved: boolean; id: number } | null = null;
+  /** The current press: where it started, the last move, and the drag's speed (radians per second). */
+  let press: { x: number; y: number; lastX: number; lastT: number; vel: number; moved: boolean; id: number } | null = null;
 
   const onDown = (e: PointerEvent) => {
     if (!e.isPrimary || e.button !== 0) return;
-    press = { x: e.clientX, y: e.clientY, yaw: rig.yawTarget, moved: false, id: e.pointerId };
+    press = { x: e.clientX, y: e.clientY, lastX: e.clientX, lastT: e.timeStamp, vel: 0, moved: false, id: e.pointerId };
   };
   const onMove = (e: PointerEvent) => {
     if (!press || e.pointerId !== press.id) return;
-    const dx = e.clientX - press.x;
-    if (Math.abs(dx) > DRAG_PX || Math.abs(e.clientY - press.y) > DRAG_PX) press.moved = true;
-    if (press.moved) rig.setYaw(press.yaw - dx * YAW_PER_PX);
+    if (!press.moved && (Math.abs(e.clientX - press.x) > DRAG_PX || Math.abs(e.clientY - press.y) > DRAG_PX)) {
+      press.moved = true;
+      rig.beginDrag();
+    }
+    if (!press.moved) return;
+    const delta = -(e.clientX - press.lastX) * ORBIT_PER_PX;
+    const dtMs = Math.max(1, e.timeStamp - press.lastT);
+    rig.dragBy(delta);
+    // Smoothed drag speed, for the coast after release.
+    press.vel = press.vel * 0.6 + (delta / (dtMs / 1000)) * 0.4;
+    press.lastX = e.clientX;
+    press.lastT = e.timeStamp;
   };
   const onUp = (e: PointerEvent) => {
     if (!press || e.pointerId !== press.id) return;
     const p = press;
     press = null;
-    if (p.moved || e.target !== canvas) return;
+    if (p.moved) {
+      // A pause before letting go means no coast.
+      rig.endDrag(e.timeStamp - p.lastT > 80 ? 0 : p.vel);
+      return;
+    }
+    if (e.target !== canvas) return;
     const hit = pick(e.clientX, e.clientY);
     if (hit) selectCbs.slice().forEach((cb) => cb(hit));
   };
   const onCancel = () => {
+    if (press?.moved) rig.endDrag(0);
     press = null;
   };
 
@@ -224,7 +248,7 @@ export const createScene: CreateScene = async (container, options) => {
     const c = goalCells.get(goalId);
     return c ? cellIndex(c.area, c.level) : -1;
   };
-  const areaColor = new THREE.Color();
+  const CLAIM = new THREE.Color(WORLD_HEX.flag);
   const CALM = new THREE.Color(EFFECT_HEX.calm);
   const GOLD = new THREE.Color(WORLD_HEX.summit);
 
@@ -246,7 +270,7 @@ export const createScene: CreateScene = async (container, options) => {
         athlete?.celebrate();
         flash(0xffc870, 10);
         const c = goalCells.get(event.goalId);
-        if (c) terrain.flashCell(cellIndex(c.area, c.level), areaColor.set(AREA_HEX[c.area]), 1);
+        if (c) terrain.flashCell(cellIndex(c.area, c.level), CLAIM, 0.8);
         break;
       }
       case "at_risk": {
@@ -344,7 +368,7 @@ export const createScene: CreateScene = async (container, options) => {
       athlete.root.quaternion.identity().slerp(marker.group.quaternion, athlete.down);
     }
     flashLight.intensity *= Math.pow(0.03, dt);
-    rig.update(dt, level(), (athlete?.down ?? 0) > 0.5, first || reduceMotion);
+    rig.update(dt, level(), (athlete?.down ?? 0) > 0.5, athleteRoot.position, first || reduceMotion);
     // Fog follows the camera's distance, so a pulled-back shot doesn't bury the mountain in haze.
     const camDist = camera.position.length();
     fog.near = camDist + FOG.near;
@@ -383,6 +407,8 @@ export const createScene: CreateScene = async (container, options) => {
   io?.observe(container);
   start();
 
+  const spot: [number, number, number] = [0, 0, 0];
+
   const handle: SceneHandle = {
     update(next) {
       if (disposed) return;
@@ -394,9 +420,19 @@ export const createScene: CreateScene = async (container, options) => {
       resistance.update(next.resistance, resolveGoal);
       resistanceAreas.clear();
       for (const r of next.resistance) resistanceAreas.set(r.id, r.targetArea);
-      const [x, , z] = athleteSpot(next.level);
-      if (firstView || reduceMotion) walker.place(x, z);
-      else walker.setGoal(x, z);
+      labels.setCells(cellLooks(next.cells));
+      trail.update(next.trail, next.cells, next.levelNames);
+      rig.setHomeYaw(next.trail ? sectorMidRad(next.trail.area) : 0);
+      // The athlete stands where the climb has reached on the trail; with no trail, at the level's spot.
+      if (!trail.athletePoint(spot)) {
+        const [sx, sy, sz] = athleteSpot(next.level);
+        spot[0] = sx;
+        spot[1] = sy;
+        spot[2] = sz;
+      }
+      walker.restFacing = Math.atan2(spot[0], spot[2]);
+      if (firstView || reduceMotion) walker.place(spot[0], spot[2]);
+      else walker.setGoal(spot[0], spot[2]);
       recoveryGoal = next.inRecovery ? 1 : 0;
       if (firstView) clock[RECOVERY] = recoveryGoal;
       athlete?.setView(next.athlete);
@@ -408,6 +444,10 @@ export const createScene: CreateScene = async (container, options) => {
     focus(target) {
       if (disposed) return;
       rig.focus(target);
+    },
+    setInsets(insets: Insets) {
+      if (disposed) return;
+      rig.setInsets(insets);
     },
     onSelect(cb) {
       selectCbs.push(cb);
@@ -432,6 +472,8 @@ export const createScene: CreateScene = async (container, options) => {
       athlete?.dispose();
       marker.dispose();
       resistance.dispose();
+      labels.dispose();
+      trail.dispose();
       burst.dispose();
       renderer.forceContextLoss();
       renderer.dispose();
@@ -458,8 +500,6 @@ const LIGHT_COLORS = {
   sunWarm: new THREE.Color(LIGHT.sunWarm),
   sunCool: new THREE.Color(LIGHT.sunCool),
 };
-/** Where a focused subject sits, as a share of the screen height from the top. */
-const FOCUSED_SUBJECT_Y = 0.3;
 /** Fog start and end, measured beyond the camera's distance from the summit axis. */
 const FOG = { near: 4, far: 40 } as const;
 /** Event colours not tied to an area. */

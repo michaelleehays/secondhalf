@@ -3,10 +3,11 @@
  * so the scene sees exactly what the app will give it. The state edits below are demo stand-ins
  * for what the engine will do; they are not game rules.
  */
-import { AREAS, DEFAULT_RULES, type GameEvent, type GameState, type SceneTarget } from "@second-half/contracts";
+import { AREAS, DEFAULT_RULES, type AreaId, type GameEvent, type GameState, type JournalEntry, type SceneTarget } from "@second-half/contracts";
 import { SAMPLE_STATE } from "@second-half/contracts/fixtures";
 import { toWorldView } from "@second-half/engine";
 import { createScene } from "../src/index";
+import { SAMPLE_LEVEL_NAMES, sampleTrail } from "./trailFixture";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 let state: GameState = structuredClone(SAMPLE_STATE);
@@ -15,8 +16,20 @@ let state: GameState = structuredClone(SAMPLE_STATE);
 const q = new URLSearchParams(location.search).get("quality");
 const quality = q === "high" || q === "low" ? q : "auto";
 const scene = await createScene($("scene"), { assetsBaseUrl: "", quality });
+/** The section the trail climbs (the engine will choose it; the demo lets you pick). */
+let trailArea: AreaId = "body";
+// Seed the journal with the fixture's moments so demo events can add to it.
+state = { ...state, journal: AREAS.flatMap((a) => sampleTrail({ ...state, journal: undefined }, a).moments) };
+const addMoment = (m: Omit<JournalEntry, "date">) => {
+  state = { ...state, journal: [...(state.journal ?? []), { ...m, date: state.today }] };
+};
+/** The engine's trail when it's for the section picked here; otherwise the demo builds one for that section. */
+const view = (s: GameState) => {
+  const v = toWorldView(s);
+  return { ...v, trail: v.trail?.area === trailArea ? v.trail : sampleTrail(s, trailArea), levelNames: v.levelNames ?? SAMPLE_LEVEL_NAMES };
+};
 const render = () => {
-  scene.update(toWorldView(state));
+  scene.update(view(state));
   $<HTMLInputElement>("health").value = String(state.character.health);
   $<HTMLInputElement>("strength").value = String(state.character.strength);
   $("healthV").textContent = String(Math.round(state.character.health));
@@ -33,6 +46,11 @@ $<HTMLInputElement>("strength").oninput = (e) => setCharacter({ strength: Number
 
 const log = (text: string) => ($("log").textContent = text);
 
+/** The trail's current goal: the first one in the section not yet locked in. */
+const currentGoal = () =>
+  state.goals.filter((g) => g.area === trailArea && g.status !== "locked_in").sort((a, b) => a.level - b.level)[0]?.id ??
+  `${trailArea}-401`;
+
 const setGoal = (id: string, patch: Partial<GameState["goals"][number]>) => {
   state = { ...state, goals: state.goals.map((g) => (g.id === id ? { ...g, ...patch } : g)) };
   render();
@@ -45,6 +63,7 @@ const setState = (patch: Partial<GameState>) => {
 const EVENTS: [string, () => GameEvent][] = [
   ["Setback", () => {
     const damage = DEFAULT_RULES.health.setbackDamage;
+    addMoment({ kind: "setback", area: trailArea, goalId: currentGoal(), label: `Setback: −${damage} health` });
     setCharacter({ health: Math.max(0, state.character.health - damage) });
     return { type: "setback", resistance: "temptation", damage };
   }],
@@ -96,8 +115,20 @@ const EVENTS: [string, () => GameEvent][] = [
     setState({ recovery: null });
     return { type: "recovery_ended", completed: true };
   }],
+  ["Climb +20%", () => {
+    const id = currentGoal();
+    const g = state.goals.find((x) => x.id === id)!;
+    const progress = Math.min(1, (g.status === "open" || g.status === "hidden" ? 0 : g.progress) + 0.2);
+    if (progress >= 1) {
+      addMoment({ kind: "locked_in", area: g.area, goalId: id, label: `Locked in: ${g.title}` });
+      setGoal(id, { status: "locked_in", progress: 1 });
+      return { type: "locked_in", goalId: id };
+    }
+    setGoal(id, { status: "in_progress", progress });
+    return { type: "progress", goalId: id, from: g.progress, to: progress };
+  }],
   ["Reset", () => {
-    state = structuredClone(SAMPLE_STATE);
+    state = { ...structuredClone(SAMPLE_STATE), journal: AREAS.flatMap((a) => sampleTrail({ ...SAMPLE_STATE, journal: undefined }, a).moments) };
     render();
     return { type: "risk_cleared", goalId: "none" };
   }],
@@ -124,6 +155,36 @@ for (const [label, target] of VIEWS) {
   b.textContent = label;
   b.onclick = () => scene.focus(target);
   $("views").append(b);
+}
+
+// Section the trail climbs.
+for (const area of AREAS) {
+  const b = document.createElement("button");
+  b.textContent = `Trail: ${area}`;
+  b.onclick = () => {
+    trailArea = area;
+    render();
+    scene.focus({ kind: "home" });
+  };
+  $("trail").append(b);
+}
+
+// Simulated app sheets, reported to the scene with setInsets (the overlay just shows the covered area).
+const sheet = $("sheet");
+const SHEETS: [string, () => { top: number; right: number; bottom: number; left: number }][] = [
+  ["No sheet", () => ({ top: 0, right: 0, bottom: 0, left: 0 })],
+  ["Right sheet", () => ({ top: 0, right: Math.min(440, innerWidth * 0.45), bottom: 0, left: 0 })],
+  ["Bottom sheet", () => ({ top: 0, right: 0, bottom: Math.round(innerHeight * 0.55), left: 0 })],
+];
+for (const [label, insets] of SHEETS) {
+  const b = document.createElement("button");
+  b.textContent = label;
+  b.onclick = () => {
+    const i = insets();
+    Object.assign(sheet.style, { display: i.right || i.bottom ? "block" : "none", top: i.right ? "0" : "auto", bottom: "0", right: "0", width: i.right ? `${i.right}px` : "100%", height: i.bottom ? `${i.bottom}px` : "100%" });
+    scene.setInsets?.(i);
+  };
+  $("sheets").append(b);
 }
 
 scene.onSelect((target) => {

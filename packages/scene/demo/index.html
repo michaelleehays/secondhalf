@@ -22,12 +22,15 @@
   </head>
   <body>
     <div id="scene"></div>
+    <div id="sheet" style="display:none;position:absolute;background:rgba(21,23,26,0.92);border-left:1px solid #2c3037;border-top:1px solid #2c3037;pointer-events:none"></div>
     <details id="panel" open>
       <summary><h1>Scene demo · sample player</h1></summary>
       <label>Health <input id="health" type="range" min="0" max="100" /><span id="healthV"></span></label>
       <label>Strength <input id="strength" type="range" min="0" max="100" /><span id="strengthV"></span></label>
       <div class="row" id="events"></div>
       <div class="row" id="views"></div>
+      <div class="row" id="trail"></div>
+      <div class="row" id="sheets"></div>
       <div id="log">Tap the mountain or the athlete.</div>
     </details>
     <script type="module" src="./main.ts"></script>

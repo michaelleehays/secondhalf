@@ -1,20 +1,20 @@
 import * as THREE from "three";
 import { AREAS, type CellView } from "@second-half/contracts";
-import { AREA_TINT_SCALE, areaOfIndex, cellLooks } from "./cells";
+import { cellLooks } from "./cells";
 import { CELL_COUNT, PEAK_HEIGHT, RING_OUTER, SECTOR_SPAN_DEG, SECTOR_START_DEG, heightAt, ringAt } from "./layout";
-import { AREA_HEX, WORLD_HEX } from "./palette";
+import { WORLD_HEX } from "./palette";
 
 /**
- * The mountain mesh. Elevation tint lives in vertex colours; everything the game drives
- * (cell colour, progress sweep, risk pulse, frozen and hidden dimming) is computed per fragment,
- * so cell edges stay crisp at any mesh resolution.
+ * The mountain mesh: monochrome rock and snow. Elevation shading lives in vertex colours; everything
+ * the game drives (ridge and ring lines, worked ground, haze over unexplored ground, the risk pulse,
+ * event effects) is computed per fragment, so lines stay crisp at any mesh resolution.
  */
 export interface Terrain {
   mesh: THREE.Mesh;
   /** Grid segments per side this terrain was built with. */
   segments: number;
   shading: "standard" | "lambert";
-  /** Ring and sector guide lines plus the summit beacon. */
+  /** The summit beacon and its light. */
   extras: THREE.Group;
   /** The beacon above the summit (tap target for The Vision). */
   summit: THREE.Object3D;
@@ -39,6 +39,8 @@ export interface TerrainOptions {
 }
 
 const SIZE = 64;
+/** Share of the peak height where snow starts. */
+const SNOW_LINE = 0.68;
 /** How fast each one-off cell effect fades, per second (1 / duration). */
 const FX_FADE = { flash: 1 / 1.2, pulse: 1 / 2.4, darken: 1 / 1.8, shake: 1 / 0.6 };
 const glslFloat = (n: number) => (Number.isInteger(n) ? `${n}.0` : String(n));
@@ -69,9 +71,11 @@ int sectorAt(vec2 xz, out float fr) {
 `;
 
 const SHADER_FRAG_DEFS = `
-uniform vec4 uFill[${CELL_COUNT}];
-uniform vec4 uMeta[${CELL_COUNT}];
-const vec3 RISK_RGB = vec3(${riskLinear()});
+uniform vec4 uFill[${CELL_COUNT}];  // haze, line strength, lift over the done share, unused
+uniform vec4 uMeta[${CELL_COUNT}];  // progress, unused, risk pulse amplitude, brightness
+const vec3 RISK_RGB = vec3(${linear(WORLD_HEX.risk)});
+const vec3 HAZE_RGB = vec3(${linear(WORLD_HEX.haze)});
+const vec3 LINE_RGB = vec3(${linear(WORLD_HEX.ridgeLine)});
 `;
 
 /** Cells shake vertically (ground_lost) by moving the vertex, before projection. */
@@ -94,40 +98,54 @@ const SHADER_CELLS = `
     int ring = ringAt(rr);
     float riskAmp = 0.0;
     float pulseAmp = 0.0;
+    float lineStrength = 0.35;  // ring lines on the plain and the Vision
+    float haze = 0.0;
+    float fr = 0.0;
     if (ring >= 1 && ring <= 4) {
-      float fr;
       int idx = (ring - 1) * 5 + sectorAt(vTerrainPos.xz, fr);
-      vec4 F = uFill[idx];   // rgb tint, fill over the done part
-      vec4 M = uMeta[idx];   // progress, fill over the rest, risk amplitude, brightness
+      vec4 F = uFill[idx];
+      vec4 M = uMeta[idx];
       vec4 X = uFx[idx];     // event flash colour and amount
       vec4 Y = uFx2[idx];    // event pulse, darken, shake
-      float m = fr <= M.x ? F.w : M.y;
-      diffuseColor.rgb = mix(diffuseColor.rgb, F.rgb, m) * M.w;
+      float lift = fr <= M.x ? F.z : 1.0;
+      diffuseColor.rgb *= M.w * lift;
       diffuseColor.rgb *= 1.0 - 0.6 * Y.y;
-      diffuseColor.rgb = mix(diffuseColor.rgb, X.rgb, X.w * 0.7);
+      diffuseColor.rgb = mix(diffuseColor.rgb, X.rgb, X.w * 0.6);
       riskAmp = M.z;
       pulseAmp = Y.x;
-      // Darken a thin band along sector edges (in world units) for crisp cell borders.
+      haze = F.x;
+      lineStrength = F.y;
+      // Ridge lines carve the five sections, from the Vision down to the base of 101.
       float edge = min(fr, 1.0 - fr) * radians(SECTOR_SPAN) * rr;
-      diffuseColor.rgb *= mix(0.5, 1.0, smoothstep(0.0, 0.1, edge));
+      float ew = max(fwidth(edge), 0.001);
+      float ridge = 1.0 - smoothstep(0.03, 0.03 + ew * 1.5, edge);
+      diffuseColor.rgb = mix(diffuseColor.rgb, LINE_RGB, ridge * (0.45 + 0.5 * lineStrength));
     }
+    // Ring boundaries: subtle lines between levels.
+    float dRing = 1e3;
+    for (int i = 0; i < 5; i++) dRing = min(dRing, abs(rr - RING_R[i]));
+    float rw = max(fwidth(rr), 0.001);
+    float ringLine = 1.0 - smoothstep(0.015, 0.015 + rw * 1.5, dRing);
+    diffuseColor.rgb = mix(diffuseColor.rgb, LINE_RGB, ringLine * (0.18 + 0.3 * lineStrength));
     // Contour lines, every fourth one stronger.
     float ch = vTerrainPos.y * 2.2;
     float f = fract(ch);
     float w = fwidth(ch);
     float line = 1.0 - smoothstep(0.0, w * 1.3, min(f, 1.0 - f));
     float major = step(0.5, 1.0 - abs(mod(floor(ch + 0.5), 4.0)));
-    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.42, line * (0.45 + 0.3 * major) * step(-0.05, vTerrainPos.y));
+    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.55, line * (0.35 + 0.3 * major) * step(-0.05, vTerrainPos.y));
+    // Unexplored ground sits under a light haze.
+    diffuseColor.rgb = mix(diffuseColor.rgb, HAZE_RGB, haze * 0.55);
     float pulse = 0.5 + 0.5 * sin(uTime * 3.5);
-    diffuseColor.rgb = mix(diffuseColor.rgb, RISK_RGB, riskAmp * (0.18 + 0.3 * pulse));
+    diffuseColor.rgb = mix(diffuseColor.rgb, RISK_RGB, riskAmp * (0.05 + 0.13 * pulse));
     // A one-off at_risk pulse: faster and stronger than the standing risk pulse.
     float fast = 0.5 + 0.5 * sin(uTime * 9.0);
     diffuseColor.rgb = mix(diffuseColor.rgb, RISK_RGB, min(1.0, pulseAmp) * (0.25 + 0.45 * fast));
   }
 `;
 
-function riskLinear(): string {
-  const c = new THREE.Color(WORLD_HEX.risk);
+function linear(hex: string): string {
+  const c = new THREE.Color(hex);
   return [c.r, c.g, c.b].map((n) => n.toFixed(4)).join(",");
 }
 
@@ -149,7 +167,7 @@ export function createTerrain(opts: TerrainOptions): Terrain {
     pos.setY(i, h);
     const ring = ringAt(Math.hypot(x, z));
     tmp.copy(low).lerp(high, Math.min(1, Math.max(0, (h / PEAK_HEIGHT) * 1.4)));
-    if (h > PEAK_HEIGHT * 0.78) tmp.lerp(snow, Math.min(1, (h - PEAK_HEIGHT * 0.78) / (PEAK_HEIGHT * 0.22)) * 0.7);
+    if (h > PEAK_HEIGHT * SNOW_LINE) tmp.lerp(snow, Math.min(1, (h - PEAK_HEIGHT * SNOW_LINE) / (PEAK_HEIGHT * (1 - SNOW_LINE))) * 0.85);
     if (ring === 0) tmp.copy(plain);
     else if (ring === 5) tmp.lerp(vision, 0.45);
     tmp.toArray(colors, i * 3);
@@ -187,14 +205,11 @@ export function createTerrain(opts: TerrainOptions): Terrain {
   mesh.name = "terrain";
   mesh.receiveShadow = true;
 
-  const areaTint = AREAS.map((a) => new THREE.Color(AREA_HEX[a]).multiplyScalar(AREA_TINT_SCALE));
-  const lost = new THREE.Color(WORLD_HEX.lost);
 
   function setCells(cells: readonly CellView[]) {
     cellLooks(cells).forEach((look, i) => {
-      const c = look.tint === "lost" ? lost : areaTint[AREAS.indexOf(areaOfIndex(i))]!;
-      uFill.value[i]!.set(c.r, c.g, c.b, look.fill);
-      uMeta.value[i]!.set(look.progress, look.restFill, look.riskPulse, look.brightness);
+      uFill.value[i]!.set(look.haze, look.lines, look.doneLift, 0);
+      uMeta.value[i]!.set(look.progress, 0, look.riskPulse, look.brightness);
     });
   }
   setCells([]);
@@ -258,34 +273,10 @@ function fade(v: number, by: number): number {
   return next > 0 ? next : 0;
 }
 
-/** Faint guide lines along ring and sector borders, and the gold beacon on the summit. */
+/** The gold beacon on the summit and its light. (Ridge and ring lines are drawn by the terrain shader.) */
 function buildExtras(): THREE.Group {
   const group = new THREE.Group();
   group.name = "terrain-extras";
-  const lineMat = new THREE.LineBasicMaterial({ color: WORLD_HEX.ringLine, transparent: true, opacity: 0.22 });
-  const lift = 0.06;
-  for (const r of RING_OUTER) {
-    const pts: THREE.Vector3[] = [];
-    for (let k = 0; k <= 200; k++) {
-      const a = (k / 200) * Math.PI * 2;
-      const x = Math.sin(a) * r;
-      const z = Math.cos(a) * r;
-      pts.push(new THREE.Vector3(x, heightAt(x, z) + lift, z));
-    }
-    group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lineMat.clone()));
-  }
-  for (const area of AREAS) {
-    const ang = (SECTOR_START_DEG[area] * Math.PI) / 180;
-    const pts: THREE.Vector3[] = [];
-    for (let k = 0; k <= 60; k++) {
-      const r = RING_OUTER[4] + ((RING_OUTER[0] - RING_OUTER[4]) * k) / 60;
-      const x = Math.sin(ang) * r;
-      const z = Math.cos(ang) * r;
-      pts.push(new THREE.Vector3(x, heightAt(x, z) + lift, z));
-    }
-    group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lineMat.clone()));
-  }
-  lineMat.dispose();
 
   const beacon = new THREE.Mesh(
     new THREE.OctahedronGeometry(0.45),

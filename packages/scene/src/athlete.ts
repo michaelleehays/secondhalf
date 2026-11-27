@@ -212,14 +212,14 @@ export function createAthlete(model: THREE.Object3D, options: AthleteOptions = {
         const rb = boneList[i]!;
         const off = pose.bones[rb.key];
         // Character-space rotation R becomes a local offset W⁻¹·R·W on top of the rest pose.
-        q.setFromEuler(e.set(off[0], off[1], off[2]));
+        q.setFromEuler(e.set(off[0]!, off[1]!, off[2]!));
         rb.bone.quaternion.copy(rb.rest).multiply(rb.worldInv).multiply(q).multiply(rb.world);
       }
       if (hips) {
-        v.set(pose.hips[0], pose.hips[1], pose.hips[2]).applyQuaternion(hipsParentInv);
+        v.set(pose.hips[0]!, pose.hips[1]!, pose.hips[2]!).applyQuaternion(hipsParentInv);
         hips.bone.position.copy(hipsRest).add(v);
       }
-      body.rotation.set(pose.root[0], pose.root[1] + facing, pose.root[2]);
+      body.rotation.set(pose.root[0]!, pose.root[1]! + facing, pose.root[2]!);
       // Turn about the pelvis rather than the feet, so a fall keeps the body over its spot.
       v.copy(pelvis).applyQuaternion(r.setFromEuler(body.rotation)).sub(pelvis);
       body.position.set(-v.x, pose.lift, -v.z);

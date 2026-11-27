@@ -9,16 +9,21 @@ export const AREA_HEX: Record<AreaId, string> = {
   money: "#E8C15A",
 };
 
-/** Terrain and sky colours (sRGB hex). */
+/** Terrain and sky colours (sRGB hex). The mountain is monochrome: rock, snow and lines. */
 export const WORLD_HEX = {
   sky: "#10141a",
-  groundLow: "#262823",
-  groundHigh: "#4a4a42",
-  snow: "#8c8a82",
-  plain: "#121417",
-  vision: "#3a3628",
-  lost: "#3a1416",
+  groundLow: "#3a3936",
+  groundHigh: "#5f5d58",
+  snow: "#d6d3cc",
+  plain: "#16181b",
+  vision: "#77736a",
+  /** Haze over unexplored ground. */
+  haze: "#7d848f",
+  /** Ridge and ring lines. */
+  ridgeLine: "#e8e4da",
+  /** The one accent: risk, setbacks, Resistance. */
   risk: "#f2293a",
-  ringLine: "#ffffff",
   summit: "#E8C15A",
+  /** Claimed-ground flags and trail markers. */
+  flag: "#f1efea",
 } as const;
