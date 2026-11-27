@@ -1,3 +1,7 @@
+# Builds assets/models/athlete.glb with Blender (pip package "bpy") and MPFB 2 installed as a user extension.
+# Install: pip install bpy==5.1.2, then clone https://github.com/makehumancommunity/mpfb2 and copy src/mpfb
+# to ~/.config/blender/5.1/extensions/user_default/mpfb
+# Run from the repo root: python3 -c "exec(open('assets/blender/build_athlete.py').read())"
 import bpy,addon_utils,numpy as np,bmesh
 addon_utils.enable("bl_ext.user_default.mpfb",default_set=True)
 P="bl_ext.user_default.mpfb."
@@ -5,7 +9,8 @@ import importlib
 HS=importlib.import_module(P+"services.humanservice").HumanService
 TS=importlib.import_module(P+"services.targetservice").TargetService
 HOP=importlib.import_module(P+"entities.objectproperties").HumanObjectProperties
-OUT='/home/user/second-half-look/athlete.glb'
+import os
+OUT=os.environ.get('ATHLETE_OUT','assets/models/athlete.glb')  # run from the repo root
 for o in list(bpy.data.objects): bpy.data.objects.remove(o)
 AVG=dict(gender=1.0,age=0.63,muscle=0.55,weight=0.55,proportions=0.65,height=0.58)
 bm=HS.create_human(mask_helpers=False,macro_detail_dict={**AVG,'cupsize':.5,'firmness':.5,'race':{'asian':.33,'caucasian':.34,'african':.33}})
