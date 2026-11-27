@@ -270,3 +270,36 @@ textarea {
 textarea::placeholder { color: #6c6f76; }
 .vision-form { display: flex; flex-direction: column; gap: 8px; }
 .vision-form .actions .muted { margin-right: auto; }
+
+/* Side sheet (athlete): shorter on phones so he stays visible above it, docked right on wide screens. */
+.sheet.side { max-height: 55%; }
+@media (min-width: 900px) {
+  .sheet.side {
+    left: auto; right: 0; top: 0; bottom: 0; width: 420px; max-height: none;
+    transform: translateX(105%); border-radius: 20px 0 0 20px; border-bottom: 1px solid var(--line); border-right: 0;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  .sheet.side.on { transform: translateX(0); }
+  .sheet.side .grab { display: none; }
+}
+.scrim.clear { background: transparent; }
+
+/* Area sheet: level tabs and the goal detail */
+.levels-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.levels-tabs button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 52px; text-align: left;
+  border: 1px solid var(--line); background: #16181c; border-radius: 10px; padding: 7px 8px; color: var(--muted);
+}
+.levels-tabs button b { color: var(--ink); font-family: var(--display); }
+.levels-tabs button span { font-size: 0.66rem; line-height: 1.25; }
+.levels-tabs button.phase-past b { color: var(--ok); }
+.levels-tabs button.phase-future { opacity: 0.75; }
+.levels-tabs button[aria-selected="true"] { border-color: var(--signal); background: var(--panel-2); color: var(--ink); opacity: 1; }
+.card .title.big { font-size: 1.1rem; }
+.card.detail.phase-future .title { color: var(--muted); }
+.facts { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.facts div { display: grid; grid-template-columns: 9.5em 1fr; gap: 8px; font-size: 0.86rem; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; }
+.moments { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.moments li { display: grid; grid-template-columns: 7.5em 1fr; gap: 8px; font-size: 0.86rem; align-items: baseline; }

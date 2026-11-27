@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { GameState, Goal, GoalKind, Habit, PlanEdit } from "@second-half/contracts";
-import { AREA_META, levelCode } from "@/lib/labels";
+import { AREA_META, STATUS_COLOR, levelCode } from "@/lib/labels";
 import {
   addHabitEdit,
   emptyHabitForm,
@@ -70,7 +70,7 @@ function GoalFields({ goal, apply }: { goal: Goal; apply: Apply }) {
   return (
     <form
       className="card form"
-      style={{ ["--c" as string]: AREA_META[goal.area].color }}
+      style={{ ["--c" as string]: STATUS_COLOR[goal.status] }}
       onSubmit={(e) => {
         e.preventDefault();
         void save();

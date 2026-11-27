@@ -8,10 +8,12 @@ interface Props {
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
+  /** "side": docked to the right on wide screens and shorter on phones, so the scene stays visible beside it. */
+  variant?: "side";
 }
 
 /** Bottom sheet over the scene. Escape or a tap on the scrim closes it. */
-export function Sheet({ open, title, onClose, children, footer }: Props) {
+export function Sheet({ open, title, onClose, children, footer, variant }: Props) {
   const ref = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -24,10 +26,10 @@ export function Sheet({ open, title, onClose, children, footer }: Props) {
 
   return (
     <>
-      <div className={`scrim${open ? " on" : ""}`} onClick={onClose} aria-hidden="true" />
+      <div className={`scrim${open ? " on" : ""}${variant ? " clear" : ""}`} onClick={onClose} aria-hidden="true" />
       <section
         ref={ref}
-        className={`sheet${open ? " on" : ""}`}
+        className={`sheet${variant ? ` ${variant}` : ""}${open ? " on" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}

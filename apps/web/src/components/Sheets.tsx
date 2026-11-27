@@ -2,9 +2,9 @@
 
 import { useState, type CSSProperties } from "react";
 import type { AreaId, GameEvent, GameState, Goal, IsoDate, Level, ResistanceId, RulesConfig } from "@second-half/contracts";
-import { areaView, athleteView, MODE_LABEL, resistanceView, visionView } from "@/lib/coach";
+import { areaView, athleteView, goalDetail, goalPhase, MODE_LABEL, resistanceView, visionView } from "@/lib/coach";
 import { shortDate } from "@/lib/dates";
-import { AREA_META, RESISTANCE_META, levelCode } from "@/lib/labels";
+import { AREA_META, RESISTANCE_META, STATUS_COLOR, levelCode } from "@/lib/labels";
 import { readyToVerify } from "@/lib/plan";
 import { Coach } from "./CheckInSheet";
 
@@ -41,52 +41,96 @@ export function AreaSheetBody({
   busy: boolean;
 }) {
   const v = areaView(state, area, rules, events, level);
+  const start = v.rows.find((r) => r.current)?.goal.level ?? v.rows[0]?.goal.level ?? 1;
+  const [picked, setPicked] = useState<Level>(start);
+  // A new tap on the map (another level) re-opens on that level.
+  const [lastStart, setLastStart] = useState(start);
+  if (start !== lastStart) {
+    setLastStart(start);
+    setPicked(start);
+  }
+  const row = v.rows.find((r) => r.goal.level === picked) ?? v.rows[0];
   const res = Object.values(state.resistance).find((r) => r.targetArea === area);
+  if (!row) return <p className="muted">No goals in {v.name} yet.</p>;
+  const d = goalDetail(state, row.goal, rules, events);
+  const color = STATUS_COLOR[row.goal.status];
+
   return (
     <>
-      <Coach>{v.coach}</Coach>
-      {v.rows.map((row) => (
-        <article
-          key={row.goal.id}
-          className={`card${row.current ? " current" : ""}`}
-          style={style({ "--c": row.current ? v.color : "var(--line)" })}
-          aria-current={row.current ? "true" : undefined}
-        >
-          <div className="top">
-            <div>
-              <span className="tag" style={style({ "--c": v.color })}>
-                {row.tag}
-              </span>
-              <b className={`title${row.goal.status === "hidden" ? " muted" : ""}`}>{row.title}</b>
-            </div>
-            <span className={`small status ${row.tone}`}>{row.status}</span>
-          </div>
-          {row.fill !== null ? (
-            <Bar value={row.fill} color={row.tone === "risk" ? "var(--risk)" : row.tone === "muted" ? "var(--muted)" : v.color} label={`${row.tag} progress`} />
-          ) : null}
-          {readyToVerify(row.goal, rules.progress.milestoneVerifyAt) ? <VerifyRow goal={row.goal} busy={busy} onVerify={onVerify} /> : null}
-        </article>
-      ))}
-      <section className="card plain" aria-label={`${v.name} habits`}>
+      <div className="levels-tabs" role="tablist" aria-label={`${v.name} levels`}>
+        {v.rows.map((r) => (
+          <button
+            key={r.goal.id}
+            role="tab"
+            aria-selected={r.goal.level === picked}
+            aria-controls="area-detail"
+            className={`phase-${goalPhase(r.goal, state)}`}
+            onClick={() => setPicked(r.goal.level)}
+          >
+            <b>{levelCode(r.goal.level)}</b>
+            <span>{r.status}</span>
+          </button>
+        ))}
+      </div>
+      <Coach>{d.coach}</Coach>
+      <article id="area-detail" role="tabpanel" className={`card detail phase-${d.phase}`} style={style({ "--c": color })}>
         <div className="top">
-          <b>Habits</b>
-          <span className="small muted">{v.mode} this season</span>
+          <span className="tag">
+            {d.label} · {d.kind}
+          </span>
+          <span className="small status">{d.heading}</span>
         </div>
-        {v.habits.length ? (
-          <ul className="list">
-            {v.habits.map((h) => (
-              <li key={h.id}>
-                <span>{h.title}</span>
-                <span className="small muted">
-                  {h.weeklyTarget[state.modes[area]]}× a week · min: {h.minimumDose}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="small muted">No habits feed {v.name} yet.</p>
-        )}
-      </section>
+        <b className="title big">{d.title}</b>
+        {row.fill !== null && d.phase !== "future" ? <Bar value={row.fill} color={color} label={`${d.label} progress`} /> : null}
+        <dl className="facts">
+          {d.facts.map((f) => (
+            <div key={f.label}>
+              <dt>{f.label}</dt>
+              <dd>{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+        {readyToVerify(row.goal, rules.progress.milestoneVerifyAt) ? <VerifyRow goal={row.goal} busy={busy} onVerify={onVerify} /> : null}
+      </article>
+      {d.momentsTitle ? (
+        <section className="card plain" aria-label={d.momentsTitle}>
+          <b>{d.momentsTitle}</b>
+          {d.moments.length ? (
+            <ol className="moments">
+              {d.moments.map((m, i) => (
+                <li key={`${m.date}-${i}`}>
+                  <span className="mono small muted">{m.date}</span>
+                  <span>{m.label}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="small muted">{d.phase === "past" ? "Nothing logged here yet." : "None lately. Keep it that way."}</p>
+          )}
+        </section>
+      ) : null}
+      {d.phase !== "future" ? (
+        <section className="card plain" aria-label={`${v.name} habits`}>
+          <div className="top">
+            <b>Habits</b>
+            <span className="small muted">{v.mode} this season</span>
+          </div>
+          {v.habits.length ? (
+            <ul className="list">
+              {v.habits.map((h) => (
+                <li key={h.id}>
+                  <span>{h.title}</span>
+                  <span className="small muted">
+                    {h.weeklyTarget[state.modes[area]]}× a week · min: {h.minimumDose}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="small muted">No habits feed {v.name} yet.</p>
+          )}
+        </section>
+      ) : null}
       {res ? (
         <button className="btn row" onClick={() => onResistance(res.id)}>
           <span>
