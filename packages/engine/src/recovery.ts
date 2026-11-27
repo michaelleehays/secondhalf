@@ -10,6 +10,7 @@ import {
   type RulesConfig,
   type StepResult,
 } from "@second-half/contracts";
+import { withKnockedDown } from "./character";
 import { appendHistory } from "./history";
 
 /**
@@ -65,7 +66,8 @@ export function startLifeEvent(state: GameState, date: IsoDate, _config: RulesCo
  * so they never count toward the at-risk pattern, double misses or Resistance reports later.
  *
  * `recovery.daysNeeded` days done within `recovery.days` ends it: health rises to at least
- * `recovery.restoreHealth`. Running out of days ends it without the boost.
+ * `recovery.restoreHealth` and gets a knocked-down athlete up. Running out of days ends it without the boost.
+ * Done entries still count as plays toward getting up (`health.getUpAfterPlays`).
  */
 export function recoveryDay(state: GameState, checkIn: CheckIn, config: RulesConfig = DEFAULT_RULES): StepResult {
   const recovery = state.recovery!;
@@ -94,11 +96,24 @@ export function recoveryDay(state: GameState, checkIn: CheckIn, config: RulesCon
 
   const daysDone = recovery.daysDone + (best ? 1 : 0);
   let health = state.character.health;
+
+  // Knocked down: done entries still count as plays toward getting up.
+  const wasDown = state.character.knockedDown;
+  const plays = (wasDown?.plays ?? 0) + done.length;
+  let knockedDown = wasDown && { ...wasDown, plays };
+  if (wasDown && plays >= config.health.getUpAfterPlays) {
+    const up = Math.max(health, config.health.getUpHealth);
+    if (up !== health) events.push({ type: "health_changed", delta: up - health, reason: "habit" });
+    health = up;
+    knockedDown = undefined;
+  }
+
   let next: RecoveryState | null = { ...recovery, day: recovery.day + 1, daysDone };
   if (daysDone >= config.recovery.daysNeeded) {
     const restored = Math.max(health, config.recovery.restoreHealth);
     if (restored !== health) events.push({ type: "health_changed", delta: restored - health, reason: "recovery" });
     health = restored;
+    knockedDown = undefined;
     next = null;
     events.push({ type: "recovery_ended", completed: true });
   } else if (recovery.day >= config.recovery.days) {
@@ -107,7 +122,7 @@ export function recoveryDay(state: GameState, checkIn: CheckIn, config: RulesCon
   }
 
   return {
-    state: { ...state, today: date, score, credits, habits, weekProgress, recovery: next, character: { ...state.character, health } },
+    state: { ...state, today: date, score, credits, habits, weekProgress, recovery: next, character: withKnockedDown({ ...state.character, health }, knockedDown) },
     events,
   };
 }

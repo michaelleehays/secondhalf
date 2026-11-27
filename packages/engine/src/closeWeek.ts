@@ -13,6 +13,7 @@ import {
 } from "@second-half/contracts";
 import { withLevels } from "./levels";
 import { daysBetween } from "./resistance";
+import { maintenanceCap } from "./maintenance";
 import { withAutoRecovery } from "./recovery";
 import { raiseRisk } from "./risk";
 
@@ -43,7 +44,8 @@ const missedBeyondGraceThisWeek = (goal: Goal, habits: Habit[], weekEnding: IsoD
  * 3. At-risk goals whose habits missed beyond grace this week: risk + `risk.perBadWeek` (100 → lost ground).
  * 4. Grace refills to `grace.perMonth` (never taking away bought days) when `weekEnding` starts a new month.
  * 5. `weekProgress` resets, levels are checked, and `today` becomes `weekEnding`.
- * 6. Recovery may start automatically (see `withAutoRecovery`).
+ * 6. `maintenance_cap` if locked-in system goals need more than `maintenance.maxWeeklyHabits` maintenance habits.
+ * 7. Recovery may start automatically (see `withAutoRecovery`).
  *
  * In Recovery, idle-area penalties (1) and risk escalation (3) are frozen; dividends still pay.
  */
@@ -123,5 +125,6 @@ export function closeWeek(state: GameState, weekEnding: IsoDate, config: RulesCo
     },
     config,
   );
-  return withAutoRecovery(result, weekEnding, config);
+  const capped = maintenanceCap(result.state, config);
+  return withAutoRecovery(capped ? { ...result, events: [...result.events, capped] } : result, weekEnding, config);
 }

@@ -18,7 +18,9 @@ import { activeRules, adjustmentFor, daysBetween, hasEffect, reportsIn, usualMis
 import { appendHistory } from "./history";
 import { withLevels } from "./levels";
 import { recoveryDay, withAutoRecovery } from "./recovery";
+import { maintenanceCap } from "./maintenance";
 import { applyDayRisk } from "./risk";
+import { withKnockedDown } from "./character";
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 /** Keeps progress sums like 0.97 + 0.03 from landing a hair under 1. */
@@ -52,7 +54,11 @@ function earnsProgress(goal: Goal, state: GameState): boolean {
  * - Score is never taken away.
  *
  * - In Recovery the day runs `recoveryDay` instead; otherwise Recovery may start automatically at the end
- *   (see `withAutoRecovery`). Reaching `health.knockedDownAt` emits `knocked_down`.
+ *   (see `withAutoRecovery`).
+ * - Knocked down: reaching `health.knockedDownAt` sets `character.knockedDown` and emits `knocked_down`.
+ *   While down, habits restore no health (points and credits still score); each done or minimum entry is a
+ *   play, and `health.getUpAfterPlays` plays get the athlete up at `health.getUpHealth`.
+ * - Maintenance cap: on a night a system goal locks in, `maintenance_cap` if the cap is passed.
  *
  * Callers must close each date once: closing the same date twice counts it twice.
  */
@@ -165,10 +171,16 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
     if (strength !== before.strength) events.push({ type: "resistance_changed", id, strength });
   }
 
+  // Knocked down: habits restore no health; each done or minimum entry is a play toward getting up.
+  const wasDown = state.character.knockedDown;
+  const plays = (wasDown?.plays ?? 0) + [...entries.values()].filter((e) => e.result !== "missed").length;
+  const getsUp = !!wasDown && plays >= config.health.getUpAfterPlays;
+  if (wasDown) health.habit = 0;
+
   // Health: sum, clamp once, then trim the events so they add up to what actually changed.
   const startHealth = state.character.health;
   const raw = startHealth + health.habit + health.miss + health.double_miss + health.setback;
-  const endHealth = clamp(raw, 0, config.health.max);
+  let endHealth = clamp(raw, 0, config.health.max);
   if (raw > endHealth) health.habit -= raw - endHealth;
   if (raw < endHealth) {
     let give = endHealth - raw;
@@ -178,10 +190,20 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
       give -= back;
     }
   }
-  for (const reason of ["habit", "miss", "double_miss", "setback"] as const) {
-    if (health[reason] !== 0) events.push({ type: "health_changed", delta: health[reason], reason });
+  if (getsUp) {
+    // Back up: health is set to getUpHealth, whatever else happened today.
+    endHealth = config.health.getUpHealth;
+    if (endHealth !== startHealth) events.push({ type: "health_changed", delta: endHealth - startHealth, reason: "habit" });
+  } else {
+    for (const reason of ["habit", "miss", "double_miss", "setback"] as const) {
+      if (health[reason] !== 0) events.push({ type: "health_changed", delta: health[reason], reason });
+    }
   }
-  if (startHealth > config.health.knockedDownAt && endHealth <= config.health.knockedDownAt) events.push({ type: "knocked_down" });
+  let knockedDown = wasDown ? (getsUp ? undefined : { ...wasDown, plays }) : undefined;
+  if (!wasDown && endHealth <= config.health.knockedDownAt) {
+    knockedDown = { since: date, plays: 0 };
+    events.push({ type: "knocked_down" });
+  }
 
   const startStrength = state.character.strength;
   const endStrength = clamp(startStrength + strengthGain, 0, config.strength.max);
@@ -218,10 +240,15 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
       habits,
       resistance,
       rules: [...state.rules, ...newRules],
-      character: { ...state.character, health: endHealth, strength: endStrength, graceDaysLeft },
+      character: withKnockedDown({ ...state.character, health: endHealth, strength: endStrength, graceDaysLeft }, knockedDown),
       weekProgress,
     },
     events,
   }, config);
-  return withAutoRecovery(result, date, config);
+  const capped = lockedSystemGoal(events, state) ? maintenanceCap(result.state, config) : undefined;
+  return withAutoRecovery(capped ? { ...result, events: [...result.events, capped] } : result, date, config);
 }
+
+/** True when a system goal locked in during this step. */
+const lockedSystemGoal = (events: GameEvent[], state: GameState) =>
+  events.some((e) => e.type === "locked_in" && state.goals.find((g) => g.id === e.goalId)?.kind === "system");

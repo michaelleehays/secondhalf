@@ -71,7 +71,7 @@ export function toWorldView(state: GameState): WorldView {
       strength,
       build: Math.max(-1, Math.min(1, (strength - 50) / 40)),
       slump: health < 35 ? 1 : 0,
-      knockedDown: health <= 0,
+      knockedDown: state.character.knockedDown !== undefined || health <= 0,
     },
     resistance: Object.values(state.resistance).map((r) => {
       const attacked = state.goals.find((g) => g.area === r.targetArea && g.status === "at_risk");
