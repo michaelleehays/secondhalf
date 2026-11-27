@@ -95,13 +95,13 @@ describe("ledgerFromEvents", () => {
     const result: StepResult = {
       state: { ...SAMPLE_STATE, today: "2026-11-27" },
       events: [
-        { type: "points", score: 19, credits: 10, reason: "habit" },
+        { type: "points", score: 19, credits: 10, reason: "habit", sourceId: "run" },
         { type: "health_changed", delta: 3, reason: "habit" },
         { type: "points", score: 625, credits: 100, reason: "goal_locked_in" },
       ],
     };
     expect(ledgerFromEvents(result)).toEqual([
-      { date: "2026-11-27", kind: "habit", score: 19, credits: 10 },
+      { date: "2026-11-27", kind: "habit", score: 19, credits: 10, sourceId: "run" },
       { date: "2026-11-27", kind: "goal_locked_in", score: 625, credits: 100 },
     ]);
     expect(toSaveArgs("u1", result).p_events).toHaveLength(3);
@@ -110,7 +110,7 @@ describe("ledgerFromEvents", () => {
 
 describe("seed.sql", () => {
   it("is up to date with SAMPLE_STATE (run npm run seed:generate -w @second-half/api)", () => {
-    const committed = readFileSync(new URL("../../../supabase/seed.sql", import.meta.url), "utf8");
+    const committed = new TextDecoder().decode(readFileSync(new URL("../../../supabase/seed.sql", import.meta.url)));
     expect(committed).toBe(seedSql(SAMPLE_STATE));
   });
 });

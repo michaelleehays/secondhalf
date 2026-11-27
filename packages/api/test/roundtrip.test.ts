@@ -133,6 +133,25 @@ describe.skipIf(!env.SUPABASE_INTEGRATION)("game data round-trip (local Supabase
     expect(ledgerAfter).toBe(ledgerBefore);
   });
 
+  it("a save missing a collection is refused and archives nothing", async () => {
+    const api = createGameApi(a.client);
+    const before = (await api.loadGameState(a.id))!;
+    const { goals: _dropped, ...noGoals } = before;
+    await expect(api.saveStepResult(a.id, { state: noGoals as GameState, events: [] })).rejects.toMatchObject({ code: "22023" });
+    expect(await api.loadGameState(a.id)).toEqual(before);
+  });
+
+  it("ledger rows keep the points event's sourceId", async () => {
+    const api = createGameApi(a.client);
+    const s = (await api.loadGameState(a.id))!;
+    await api.saveStepResult(a.id, {
+      state: { ...s, today: "2026-11-28" },
+      events: [{ type: "points", score: 19, credits: 10, reason: "habit", sourceId: "meditate" }],
+    });
+    const { data } = await a.client.from("ledger").select("source_id").eq("date", "2026-11-28");
+    expect(data).toEqual([{ source_id: "meditate" }]);
+  });
+
   it("another player can neither load nor save someone else's game", async () => {
     const apiB = createGameApi(b.client);
     expect(await apiB.loadGameState(a.id)).toBeNull();

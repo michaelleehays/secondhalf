@@ -232,14 +232,17 @@ export function toGameState(snap: GameSnapshot): GameState {
   };
 }
 
-/**
- * Ledger rows for a step: one per "points" event, dated the state's today.
- * Points events carry no source id yet, so sourceId is left out.
- */
+/** Ledger rows for a step: one per "points" event, dated the state's today, with its sourceId when it has one. */
 export function ledgerFromEvents(result: StepResult): LedgerEntry[] {
   return result.events
     .filter((e): e is Extract<GameEvent, { type: "points" }> => e.type === "points")
-    .map((e) => ({ date: result.state.today, kind: e.reason as LedgerKind, score: e.score, credits: e.credits }));
+    .map((e) => ({
+      date: result.state.today,
+      kind: e.reason as LedgerKind,
+      score: e.score,
+      credits: e.credits,
+      ...(e.sourceId ? { sourceId: e.sourceId } : {}),
+    }));
 }
 
 /** Arguments for the save_step_result RPC. */

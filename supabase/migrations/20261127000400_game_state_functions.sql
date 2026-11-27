@@ -71,12 +71,32 @@ set search_path = ''
 as $$
 declare
   s jsonb := p_state;
+  k text;
 begin
   if p_user_id is distinct from auth.uid() and coalesce(auth.role(), '') <> 'service_role' then
     raise exception 'You can only save your own game.' using errcode = '42501';
   end if;
   if s ->> 'userId' is distinct from p_user_id::text then
     raise exception 'state.userId does not match the user being saved.' using errcode = '22023';
+  end if;
+
+  -- Shape guard. A missing or null collection would otherwise read as "empty" and archive every goal
+  -- and habit, and delete every program, game plan and rule. Refuse the whole save instead.
+  if jsonb_typeof(s) is distinct from 'object' then
+    raise exception 'state must be a JSON object.' using errcode = '22023';
+  end if;
+  for k in select unnest(array['goals', 'programs', 'habits', 'gamePlans', 'rules']) loop
+    if jsonb_typeof(s -> k) is distinct from 'array' then
+      raise exception 'state.% must be an array.', k using errcode = '22023';
+    end if;
+  end loop;
+  for k in select unnest(array['modes', 'resistance', 'character', 'season']) loop
+    if jsonb_typeof(s -> k) is distinct from 'object' then
+      raise exception 'state.% must be an object.', k using errcode = '22023';
+    end if;
+  end loop;
+  if jsonb_typeof(coalesce(p_ledger, '[]')) <> 'array' or jsonb_typeof(coalesce(p_events, '[]')) <> 'array' then
+    raise exception 'ledger and events must be arrays.' using errcode = '22023';
   end if;
 
   -- Profile.
