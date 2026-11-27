@@ -8,6 +8,7 @@ import {
 import { closeDay } from "./closeDay";
 import { closeWeek } from "./closeWeek";
 import { closeReview, equipGamePlan } from "./player";
+import { applyPlanEdit } from "./plan";
 import { verifyAchievement } from "./progress";
 import { startLifeEvent } from "./recovery";
 import { quarterlyCheck } from "./risk";
@@ -17,6 +18,7 @@ export { closeWeek } from "./closeWeek";
 export { recoveryHabit, startLifeEvent } from "./recovery";
 export { closeReview, equipGamePlan } from "./player";
 export { verifyAchievement, weeklyShare } from "./progress";
+export { applyPlanEdit } from "./plan";
 export { quarterlyCheck, raiseRisk } from "./risk";
 export { checkLevels } from "./levels";
 
@@ -32,9 +34,7 @@ export function createEngine(config: RulesConfig = DEFAULT_RULES): Engine {
     equipGamePlan: (state, gamePlanId, equipped) => equipGamePlan(state, gamePlanId, equipped, config),
     closeReview: (state, date) => closeReview(state, date, config),
     verifyAchievement: (state, goalId, date, note) => verifyAchievement(state, goalId, date, note, config),
-    applyPlanEdit: () => {
-      throw new Error("engine.applyPlanEdit is not implemented yet (workstream A)");
-    },
+    applyPlanEdit: (state, edit, date) => applyPlanEdit(state, edit, date, config),
     quarterlyCheck: (state, goalId, passed, date) => quarterlyCheck(state, goalId, passed, date, config),
     projectedFinalScore: (state) => projectedFinalScore(state, config),
     toWorldView,
