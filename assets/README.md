@@ -88,18 +88,26 @@ Download whole asset folders, not single files. Each `.mhclo` needs the `.obj`, 
 textures that sit beside it, and a skin `.mhmat` needs its textures. Once the build uses them,
 commit only the folders it actually uses.
 
-1. **`makehuman_system_assets`** (CC0), from
-   https://static.makehumancommunity.org/asset_packs/makehuman_system_assets.html.
-   The build will use these folders from it, each complete:
-   - `skins/`: a male skin folder (for example the one holding `young_caucasian_male.mhmat`), plus
-     any middle-aged or darker-tone male skins the pack includes.
+All packs are listed on the asset pack index:
+https://static.makehumancommunity.org/assets/assetpacks.html. Download these four, each CC0:
+
+1. **Makehuman system assets** (required). The build uses these folders from it, each complete:
    - `eyes/` (the folder with `low-poly.mhclo`, plus the eye textures)
-   - `eyebrows/` (the folder with `eyebrow001.mhclo`)
-   - `eyelashes/` (the folder with `eyelashes01.mhclo`)
    - `teeth/` (`teeth_base.mhclo`) and `tongue/` (`tongue01.mhclo`)
-2. **Clothing and shoes** (optional, for real garments). From the pack index at
-   https://static.makehumancommunity.org/assets/assetpacks.html, download only packs whose page
-   says **CC0**. Look for running shoes, a fitted jacket or track top, and shorts. Take each
-   garment's whole folder, and include each pack's page or license text so it can be logged.
+   - `skins/`, if it holds a usable male skin
+2. **Skins 02**: natural male skins. Take the whole folder for each skin we pick.
+3. **Eyebrows 01**
+4. **Eyelashes 01**
+
+Check that each pack's page says **CC0** before downloading, and keep its page or license text
+so it can be logged in `LICENSES.md`.
+
+Clothing and shoes are optional, for replacing the stand-in kit later. Take them from the same
+index, CC0 packs only: running shoes, a fitted jacket or track top, and shorts, each garment's
+whole folder.
+
+**Installing a pack:** either unzip it into MPFB's user data folder, or in Blender use MPFB's
+**Apply assets → Library Settings → Load pack from zip file**. For the repo, copy only the folders
+the build uses into `assets/vendor/makehuman/`.
 
 Do not use packs marked CC-BY, non-commercial or "unknown". They are outside our licence rule.
