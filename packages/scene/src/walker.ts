@@ -21,13 +21,15 @@ export class Walker {
   phase = 0;
   /** Yaw, radians; 0 faces +z (toward the home camera). */
   facing = 0;
+  /** Yaw to turn to once arrived (e.g. facing out from the mountain). */
+  restFacing = 0;
 
   /** Jump straight to a spot (first view, reduced motion). */
   place(x: number, z: number) {
     this.x = this.goalX = x;
     this.z = this.goalZ = z;
     this.walk = 0;
-    this.facing = 0;
+    this.facing = this.restFacing;
   }
 
   setGoal(x: number, z: number) {
@@ -43,7 +45,7 @@ export class Walker {
     const dx = this.goalX - this.x;
     const dz = this.goalZ - this.z;
     const dist = Math.hypot(dx, dz);
-    let faceGoal = 0;
+    let faceGoal = this.restFacing;
     if (dist > ARRIVE) {
       const move = Math.min(dist, WALK_SPEED * dt * Math.max(0.25, this.walk));
       this.x += (dx / dist) * move;
@@ -56,7 +58,7 @@ export class Walker {
       this.z = this.goalZ;
       this.walk = Math.max(0, this.walk - dt * 3);
     }
-    // Turn the short way round toward the goal (or back to the camera once there).
+    // Turn the short way round toward the goal (or to the rest facing once there).
     let d = faceGoal - this.facing;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     this.facing += d * (1 - Math.pow(0.01, dt));
