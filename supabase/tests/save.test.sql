@@ -1,7 +1,7 @@
 -- save_step_result: a malformed state is refused whole and leaves saved data intact.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(17);
+select plan(22);
 
 insert into auth.users (id, email) values ('dddddddd-0000-0000-0000-000000000000', 'd@example.test');
 
@@ -70,6 +70,21 @@ select throws_ok($$select public.save_step_result('dddddddd-0000-0000-0000-00000
 select throws_ok($$select public.save_step_result('dddddddd-0000-0000-0000-000000000000',
                    (select jsonb_set(s, '{levelNames}', '{"2": ""}') from good), '[]', '[]')$$,
                  '23514', null, 'an empty level name is refused');
+
+-- Journal: stored in order, replaced on the next save, removed when the state has none.
+select lives_ok($$select public.save_step_result('dddddddd-0000-0000-0000-000000000000',
+                  (select jsonb_set(s, '{journal}', '[{"date":"2026-11-20","kind":"setback","area":"body","label":"Fatigue setback: −7 health"},
+                                                      {"date":"2026-11-25","kind":"level_up","label":"Level 201"}]') from good), '[]', '[]')$$,
+                'a journal saves');
+select results_eq($$select seq, kind::text, label from public.journal order by seq$$,
+                  $$values (0, 'setback'::text, 'Fatigue setback: −7 health'::text), (1, 'level_up', 'Level 201')$$,
+                  'journal entries are stored oldest first');
+select lives_ok($$select public.save_step_result('dddddddd-0000-0000-0000-000000000000', (select s from good), '[]', '[]')$$,
+                'a state without a journal saves');
+select is((select count(*)::int from public.journal), 0, 'and stores no journal');
+select throws_ok($$select public.save_step_result('dddddddd-0000-0000-0000-000000000000',
+                   (select jsonb_set(s, '{journal}', '{"date":"2026-11-20"}') from good), '[]', '[]')$$,
+                 '22023', 'state.journal must be an array when present.', 'a journal that is not an array is refused');
 
 select * from finish();
 rollback;

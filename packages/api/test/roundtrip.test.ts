@@ -9,7 +9,7 @@
 import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { beforeAll, describe, expect, it } from "vitest";
-import type { GameState } from "@second-half/contracts";
+import { DEFAULT_RULES, type GameState } from "@second-half/contracts";
 import { SAMPLE_STATE } from "@second-half/contracts/fixtures";
 import { closeDay } from "@second-half/engine";
 import { createGameApi, SEED_USER, STALE_SAVE } from "../src/index";
@@ -133,7 +133,7 @@ describe.skipIf(!env.SUPABASE_INTEGRATION)("game data round-trip (local Supabase
     expect(ledgerAfter).toBe(ledgerBefore);
   });
 
-  it("bestLevel, lastReviewOn, levelNames, vision, goal verification and knockedDown survive a save, and clearing them clears them", async () => {
+  it("bestLevel, lastReviewOn, levelNames, vision, journal, goal verification and knockedDown survive a save, and clearing them clears them", async () => {
     const api = createGameApi(a.client);
     const s = (await api.loadGameState(a.id))!;
     const knocked: GameState = {
@@ -142,13 +142,17 @@ describe.skipIf(!env.SUPABASE_INTEGRATION)("game data round-trip (local Supabase
       lastReviewOn: "2026-11-22",
       levelNames: { 1: "Getting started", 2: "Building up" },
       vision: "Strong at 84. Free with my time. Surrounded by people I love.",
+      journal: [
+        { date: "2026-11-20", kind: "setback", area: "body", label: "Fatigue setback: −7 health" },
+        { date: "2026-11-27", kind: "locked_in", area: "people", goalId: "people-101", label: "Host dinner 6 times: locked in" },
+      ],
       goals: s.goals.map((g) => (g.id === "body-201" ? { ...g, verification: "Run a timed 10K", verifiedOn: "2026-11-27" } : g)),
       character: { ...s.character, health: 0, knockedDown: { since: "2026-11-27", plays: 1 } },
     };
     await api.saveStepResult(a.id, { state: knocked, events: [] });
     expect(await api.loadGameState(a.id)).toEqual(knocked);
 
-    const { bestLevel: _best, lastReviewOn: _review, levelNames: _names, vision: _vision, ...rest } = knocked;
+    const { bestLevel: _best, lastReviewOn: _review, levelNames: _names, vision: _vision, journal: _journal, ...rest } = knocked;
     const up: GameState = { ...rest, goals: s.goals, character: { health: 30, strength: s.character.strength, graceDaysLeft: s.character.graceDaysLeft } };
     await api.saveStepResult(a.id, { state: up, events: [] });
     expect(await api.loadGameState(a.id)).toEqual(up);
@@ -165,6 +169,28 @@ describe.skipIf(!env.SUPABASE_INTEGRATION)("game data round-trip (local Supabase
     ).rejects.toMatchObject({ code: STALE_SAVE });
     expect((await api.loadGameState(a.id))!.score).toBe(first.state.score + 6);
     await api.saveStepResult(a.id, { state: first.state, events: [] });
+  });
+
+  it("a journal the engine caps at rules.journal.maxEntries is stored and loads back in order", async () => {
+    const api = createGameApi(a.client);
+    const s = (await api.loadGameState(a.id))!;
+    const journal = Array.from({ length: DEFAULT_RULES.journal.maxEntries }, (_, i) => ({
+      date: "2026-11-27",
+      kind: "setback" as const,
+      area: "body" as const,
+      label: `Entry ${i}`,
+    }));
+    await api.saveStepResult(a.id, { state: { ...s, journal }, events: [] });
+    const loaded = (await api.loadGameState(a.id))!;
+    expect(loaded.journal).toHaveLength(DEFAULT_RULES.journal.maxEntries);
+    expect(loaded.journal![0]!.label).toBe("Entry 0");
+    expect(loaded.journal!.at(-1)!.label).toBe(`Entry ${DEFAULT_RULES.journal.maxEntries - 1}`);
+
+    // The next step hands over the new capped set (oldest dropped, one added): the stored set is replaced.
+    const next = [...journal.slice(1), { date: "2026-11-28", kind: "level_up" as const, label: "Level 301" }];
+    await api.saveStepResult(a.id, { state: { ...s, journal: next }, events: [] });
+    expect((await api.loadGameState(a.id))!.journal).toEqual(next);
+    await api.saveStepResult(a.id, { state: s, events: [] });
   });
 
   it("a save missing a collection is refused and archives nothing", async () => {

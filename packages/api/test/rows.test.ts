@@ -52,6 +52,9 @@ function snapshotOf(s: GameState): GameSnapshot {
       index: s.season.index, starts_on: s.season.startsOn, focus: s.season.focus,
       auto_recovery_used: s.season.autoRecoveryUsed, life_event_pause_used: s.season.lifeEventPauseUsed,
     },
+    journal: (s.journal ?? []).map((j, seq) => ({
+      seq, date: j.date, kind: j.kind, area: j.area ?? null, goal_id: j.goalId ?? null, label: j.label,
+    })),
   };
 }
 
@@ -73,6 +76,11 @@ const RICH: GameState = {
   lastReviewOn: "2026-11-22",
   levelNames: { 1: "Getting started", 3: "The long game" },
   vision: "Strong at 84. Free with my time. Surrounded by people I love.",
+  journal: [
+    { date: "2026-09-01", kind: "locked_in", area: "body", goalId: "body-101", label: "Run a 5K: locked in" },
+    { date: "2026-11-24", kind: "setback", area: "body", label: "Fatigue setback: −7 health" },
+    { date: "2026-11-25", kind: "level_up", label: "Level 201: Momentum" },
+  ],
   character: { ...SAMPLE_STATE.character, health: 0, knockedDown: { since: "2026-11-25", plays: 1 } },
 };
 
@@ -83,6 +91,12 @@ describe("toGameState", () => {
 
   it("round-trips history, programs, rules, recovery, lock-in dates, week progress, bestLevel and knockedDown", () => {
     expect(toGameState(snapshotOf(RICH))).toEqual(RICH);
+  });
+
+  it("orders the journal by seq, oldest first, whatever order the rows arrive in", () => {
+    const snap = snapshotOf(RICH);
+    snap.journal!.reverse();
+    expect(toGameState(snap).journal!.map((j) => j.date)).toEqual(["2026-09-01", "2026-11-24", "2026-11-25"]);
   });
 
   it("orders history oldest first whatever order the rows arrive in", () => {
@@ -101,6 +115,7 @@ describe("toGameState", () => {
     expect("lastReviewOn" in loaded).toBe(false);
     expect("levelNames" in loaded).toBe(false);
     expect("vision" in loaded).toBe(false);
+    expect("journal" in loaded).toBe(false);
     expect("verification" in goal || "verifiedOn" in goal).toBe(false);
     const day = toGameState(snapshotOf(RICH)).habits.find((h) => h.id === "run")!.history[1]!;
     expect("reason" in day).toBe(false);

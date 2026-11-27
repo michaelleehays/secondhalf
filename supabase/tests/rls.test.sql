@@ -2,7 +2,7 @@
 -- Three players: A and B each have a full game; C has a profile only.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(64);
+select plan(65);
 
 -- ---------- Fixtures (as postgres, RLS bypassed) ----------
 insert into auth.users (id, email) values
@@ -38,6 +38,8 @@ insert into public.recovery (user_id, cause, started_on, day, days_done, habit_t
   select id, 'auto', '2026-11-24', 3, 2, 'Tempo run' from players;
 insert into public.seasons (user_id, index, starts_on, focus) select id, 1, '2026-10-26', '{body,work}' from players;
 insert into public.ledger (user_id, date, kind, score, credits) select id, '2026-11-25', 'habit', 15, 10 from players;
+insert into public.journal (user_id, seq, date, kind, label)
+  select id, 0, '2026-11-25', 'level_up', 'Level 201' from players;
 insert into public.game_events (user_id, date, event)
   select id, '2026-11-25', '{"type":"points","score":15,"credits":10,"reason":"habit"}' from players;
 
@@ -58,7 +60,7 @@ select results_eq('select id from public.profiles', $$values ('aaaaaaaa-0000-000
 select results_eq(format('select user_id from public.%I', t), $$values ('aaaaaaaa-0000-0000-0000-000000000000'::uuid)$$,
                   'A reads only own rows in ' || t)
 from unnest(array['areas','goals','programs','habits','check_ins','resistance','game_plans',
-                  'rule_adjustments','character','recovery','seasons','ledger','game_events','habit_history']) as t;
+                  'rule_adjustments','character','recovery','seasons','ledger','game_events','habit_history','journal']) as t;
 
 -- Writing as someone else is refused.
 select throws_ok($$insert into public.profiles (id, birth_year, end_age, today, timezone, level)
