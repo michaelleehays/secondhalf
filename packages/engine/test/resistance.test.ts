@@ -36,7 +36,10 @@ describe("Resistance", () => {
   });
 
   it("strength is capped at resistance.max", () => {
-    const { state } = day(withResistance(SAMPLE_STATE, "stress", R.resistance.max), missed("meditate", "stress"));
+    // Setbacks off (setbackAt above max) so the cap is seen on its own.
+    const config = { ...R, resistance: { ...R.resistance, setbackAt: R.resistance.max + 1 } };
+    const start = withResistance(SAMPLE_STATE, "stress", R.resistance.max);
+    const { state } = closeDay(start, { date: DATE, entries: [missed("meditate", "stress")] }, config);
     expect(state.resistance.stress.strength).toBe(R.resistance.max);
   });
 
@@ -119,12 +122,32 @@ describe("Resistance", () => {
     expect(state.rules[0]?.message).toContain("For the next 3 weeks");
   });
 
+  it("after a setback the Resistance drops to afterSetback", () => {
+    const { state, events } = day(SAMPLE_STATE, missed("no-impulse", "temptation"));
+    expect(state.resistance.temptation.strength).toBe(R.resistance.afterSetback);
+    expect(events).toContainEqual({ type: "resistance_changed", id: "temptation", strength: R.resistance.afterSetback });
+  });
+
+  it("setbacks do not repeat daily: two days of the same reason at setbackAt cause one setback", () => {
+    const first = day(SAMPLE_STATE, missed("no-impulse", "temptation"));
+    const second = closeDay(first.state, { date: "2026-11-28", entries: [missed("no-impulse", "temptation")] });
+    const setbacks = [...first.events, ...second.events].filter((e) => e.type === "setback");
+    expect(setbacks).toHaveLength(1);
+    expect(second.state.resistance.temptation.strength).toBe(R.resistance.afterSetback + 1);
+  });
+
   it("rule adjustment: no second rule while one for that Resistance is in force", () => {
-    const first = day(SAMPLE_STATE, missed("no-impulse", "temptation")).state;
-    const { state, events } = closeDay(first, { date: "2026-11-28", entries: [missed("no-impulse", "temptation")] });
-    expect(state.rules).toHaveLength(1);
-    expect(events.some((e) => e.type === "rule_adjusted")).toBe(false);
+    // Setback, then climb back to setbackAt and set back again, all inside the rule's 2 weeks.
+    let state = day(SAMPLE_STATE, missed("no-impulse", "temptation")).state;
+    const events = [];
+    for (const date of ["2026-11-28", "2026-11-29"]) {
+      const r = closeDay(state, { date, entries: [missed("no-impulse", "temptation")] });
+      state = r.state;
+      events.push(...r.events);
+    }
     expect(events.some((e) => e.type === "setback")).toBe(true);
+    expect(events.some((e) => e.type === "rule_adjusted")).toBe(false);
+    expect(state.rules).toHaveLength(1);
   });
 
   it("rule effect minimum_counts_as_full: a minimum on that habit scores as a full one while the rule is in force", () => {

@@ -39,7 +39,8 @@ function earnsProgress(goal: Goal, state: GameState): boolean {
  *   A grace day removes the damage, not the miss, so the streak still counts.
  * - Resistance: each reason given raises that Resistance by 1; doing a habit on a weekday it is usually
  *   missed knocks that Resistance down by 1. A Resistance reported while at `setbackAt` causes a setback
- *   (halved by an equipped game plan) and, if no rule for it is in force, a rule adjustment.
+ *   (halved by an equipped game plan) and, if no rule for it is in force, a rule adjustment; it then drops
+ *   to `afterSetback`, so it cannot hit every day in a row.
  * - Rule adjustments in force change how entries count (see `RuleEffect`).
  * - Health and strength changes are summed and clamped once, so entry order never matters.
  * - Score is never taken away.
@@ -130,10 +131,7 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
   const resistance = { ...state.resistance };
   for (const id of Object.keys(state.resistance) as ResistanceId[]) {
     const before = state.resistance[id];
-    const strength = clamp(before.strength + (resistanceDelta.get(id) ?? 0), 1, config.resistance.max);
-    const next: ResistanceState = { ...before, strength, reports14d: reportsIn(habits, id) };
-    resistance[id] = next;
-    if (strength !== before.strength) events.push({ type: "resistance_changed", id, strength });
+    let strength = clamp(before.strength + (resistanceDelta.get(id) ?? 0), 1, config.resistance.max);
 
     if (reported.has(id) && strength >= config.resistance.setbackAt) {
       const planned = state.gamePlans.some((p) => p.resistance === id && p.equipped);
@@ -148,7 +146,13 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
           events.push({ type: "rule_adjusted", rule });
         }
       }
+      // Right after a setback the Resistance drops back, so it cannot hit every day in a row.
+      strength = config.resistance.afterSetback;
     }
+
+    const next: ResistanceState = { ...before, strength, reports14d: reportsIn(habits, id) };
+    resistance[id] = next;
+    if (strength !== before.strength) events.push({ type: "resistance_changed", id, strength });
   }
 
   // Health: sum, clamp once, then trim the events so they add up to what actually changed.
