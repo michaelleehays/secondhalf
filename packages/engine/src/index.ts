@@ -54,6 +54,7 @@ export function toWorldView(state: GameState): WorldView {
   return {
     level: state.level,
     cells: state.goals.map((g) => ({
+      goalId: g.id,
       area: g.area,
       level: g.level,
       status: g.status,
