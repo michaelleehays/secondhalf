@@ -326,19 +326,26 @@ export function goalDetail(state: GameState, goal: Goal, rules: RulesConfig, eve
   if (phase === "current") {
     const { done, total } = consistentWeeks(goal, rules);
     const ready = goal.kind === "milestone" && goal.progress >= rules.progress.milestoneVerifyAt;
-    const facts = [
-      { label: "Progress", value: goal.status === "lost" ? `Lost ground, back at ${pct(goal.progress)}` : `${pct(goal.progress)}` },
-      { label: "Consistent weeks", value: `${done} of ${total}` },
-      {
-        label: "What's left",
-        value: ready
-          ? `The real thing: ${goal.verification || "do it and log it"}`
-          : `About ${total - done} more consistent ${total - done === 1 ? "week" : "weeks"}${goal.kind === "milestone" ? `, then ${goal.verification || "the real achievement"}` : ""}`,
-      },
-      ...(goal.status === "at_risk"
-        ? [{ label: "Risk", value: `${Math.round(goal.risk)}% · about ${cleanDaysToClear(goal.risk, rules)} clean days to clear` }]
-        : []),
-    ];
+    const weeksLeft = total - done;
+    const facts =
+      goal.status === "at_risk"
+        ? // Locked-in ground under pressure: what matters is the risk, not progress.
+          [
+            { label: "Risk", value: `${Math.round(goal.risk)}%` },
+            { label: "To clear it", value: `About ${cleanDaysToClear(goal.risk, rules)} clean days` },
+            { label: "At 100%", value: `Lost ground: its weekly points stop and it restarts from ${pct(rules.risk.lostRestartProgress)}` },
+            ...(goal.lockedInOn ? [{ label: "Locked in", value: date(goal.lockedInOn) }] : []),
+          ]
+        : [
+            { label: "Progress", value: goal.status === "lost" ? `Lost ground, back at ${pct(goal.progress)}` : `${pct(goal.progress)}` },
+            { label: "Consistent weeks", value: `${done} of ${total}` },
+            {
+              label: goal.status === "lost" ? "To win it back" : "What's left",
+              value: ready
+                ? `The real thing: ${goal.verification || "do it and log it"}`
+                : `About ${weeksLeft} more consistent ${weeksLeft === 1 ? "week" : "weeks"}${goal.kind === "milestone" ? `, then ${goal.verification || "the real achievement"}` : ""}`,
+            },
+          ];
     const res = resistanceFor(state, goal.area);
     const setbackKinds = new Set(["setback", "at_risk", "ground_lost", "risk_cleared"]);
     let moments = journalFor(state, (e) => e.area === goal.area && setbackKinds.has(e.kind)).map((e) => ({ date: date(e.date), label: e.label }));

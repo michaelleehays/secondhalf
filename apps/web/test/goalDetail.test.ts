@@ -52,12 +52,23 @@ describe("goal detail", () => {
   it("current ground: progress, consistent weeks, what's left and recent setbacks", () => {
     const d = goalDetail(SAMPLE_STATE, goal(SAMPLE_STATE, "money-101"), R, []);
     expect(d.heading).toBe("At risk");
-    expect(fact(d, "Risk")).toBe(`60% · about ${Math.ceil(60 / R.risk.fullCleanDay)} clean days to clear`);
+    expect(fact(d, "Risk")).toBe("60%");
+    expect(fact(d, "To clear it")).toBe(`About ${Math.ceil(60 / R.risk.fullCleanDay)} clean days`);
+    expect(fact(d, "At 100%")).toBe(`Lost ground: its weekly points stop and it restarts from ${Math.round(R.risk.lostRestartProgress * 100)}%`);
+    expect(fact(d, "Progress")).toBeUndefined();
     expect(d.momentsTitle).toBe("Recent setbacks");
     expect(d.moments).toEqual([{ date: "Last 2 weeks", label: "Temptation picked as the reason 6 times" }]);
     const run = goalDetail(SAMPLE_STATE, goal(SAMPLE_STATE, "body-201"), R, []);
     expect(fact(run, "Progress")).toBe("40%");
     expect(fact(run, "What's left")).toMatch(/^About \d+ more consistent weeks, then the real achievement$/);
+  });
+
+  it("lost ground: what it takes to win it back", () => {
+    const s = { ...SAMPLE_STATE, goals: SAMPLE_STATE.goals.map((g) => (g.id === "money-101" ? { ...g, status: "lost" as const, risk: 0, progress: R.risk.lostRestartProgress } : g)) };
+    const d = goalDetail(s, goal(s, "money-101"), R, []);
+    expect(d.heading).toBe("Lost ground");
+    expect(fact(d, "Progress")).toBe(`Lost ground, back at ${Math.round(R.risk.lostRestartProgress * 100)}%`);
+    expect(fact(d, "To win it back")).toMatch(/^About \d+ more consistent weeks?, then the real achievement$/);
   });
 
   it("future ground: what it is, what proves it and what unlocks it", () => {

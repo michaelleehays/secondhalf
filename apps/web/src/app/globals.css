@@ -271,8 +271,12 @@ textarea::placeholder { color: #6c6f76; }
 .vision-form { display: flex; flex-direction: column; gap: 8px; }
 .vision-form .actions .muted { margin-right: auto; }
 
-/* Side sheet (athlete): shorter on phones so he stays visible above it, docked right on wide screens. */
-.sheet.side { max-height: 55%; }
+/* Side sheets (detail sheets): on phones they open at a half-height detent and the handle expands them;
+   on wide screens they dock to the right, so the scene stays visible beside them. */
+.sheet.side { max-height: 55%; transition: transform 0.32s cubic-bezier(0.2, 0.9, 0.3, 1), max-height 0.28s ease; }
+.sheet.side.expanded { max-height: 88%; }
+.grab-btn { border: 0; background: none; padding: 6px 0 2px; width: 100%; min-height: 24px; display: flex; justify-content: center; flex: none; }
+.grab-btn .grab { margin: 0; }
 @media (min-width: 900px) {
   .sheet.side {
     left: auto; right: 0; top: 0; bottom: 0; width: 420px; max-height: none;
@@ -280,7 +284,10 @@ textarea::placeholder { color: #6c6f76; }
     padding-top: env(safe-area-inset-top, 0px);
   }
   .sheet.side.on { transform: translateX(0); }
-  .sheet.side .grab { display: none; }
+  .sheet.side .grab-btn { display: none; }
+  .sheet.side, .sheet.side.expanded { max-height: none; }
+  /* Toasts move to the bottom-left corner, clear of the summit and the side sheet. */
+  .toasts { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 92px); left: 16px; right: auto; width: 380px; align-items: stretch; padding: 0; }
 }
 .scrim.clear { background: transparent; }
 
