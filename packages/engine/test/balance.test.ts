@@ -38,11 +38,24 @@ describe("balance targets (PROPOSED_RULES)", () => {
     for (const s of b.struggling) expect(s.setbacksPerWeek).toBeLessThanOrEqual(1);
   });
 
-  // Not reachable with today's rule shapes: strength only rises while every area moves each week, so every
-  // profile saturates at 100. Needs a strength pull-back (requested: strength.missCost / strength.dailyDecay).
-  it.todo("strength: the consistent player reaches about 85 after 12 weeks, not before week 6");
-  it.todo("strength: the struggling player sits around 45 to 60");
-  it.todo("strength: a month of misses drops it by at least 20");
+  it("strength: the consistent player reaches about 85 after 12 weeks, not before week 6", () => {
+    for (const s of b.consistent) {
+      expect(s.strengthDay42!).toBeLessThan(85);
+      expect(s.strengthDay84!).toBeGreaterThanOrEqual(80);
+      expect(s.strengthDay84!).toBeLessThanOrEqual(90);
+    }
+  });
+
+  it("strength: the struggling player sits around 45 to 60", () => {
+    for (const s of b.struggling) {
+      expect(s.strengthMeanLate).toBeGreaterThanOrEqual(45);
+      expect(s.strengthMeanLate).toBeLessThanOrEqual(60);
+    }
+  });
+
+  it("strength: a month of misses drops it by at least 20", () => {
+    for (const s of b.collapse) expect(s.strengthDrop61to91).toBeGreaterThanOrEqual(20);
+  });
   // Pacing moves to the consistent-weeks progress model (contracts #29) and is measured in that PR.
   it.todo("pacing: 101 takes about 3 to 4 months at 90%, each later level about 1.5x longer");
 });

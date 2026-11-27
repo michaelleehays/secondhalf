@@ -95,6 +95,21 @@ describe("closeDay", () => {
     expect(deltas.reduce((n, d) => n + d, 0)).toBe(-2);
   });
 
+  it("strength missCost: each miss grace doesn't cover costs strength.missCost strength", () => {
+    const config = { ...R, strength: { ...R.strength, missCost: 2 } };
+    const start = withCharacter({ graceDaysLeft: 1 });
+    const { state } = closeDay(start, { date: DATE, entries: [missed("run"), missed("meditate")] }, config);
+    expect(state.character.strength).toBe(SAMPLE_STATE.character.strength - 2);
+  });
+
+  it("strength dailyDecay: each night strength loses strength.dailyDecay of itself, so it settles where gains meet decay", () => {
+    const config = { ...R, strength: { ...R.strength, dailyDecay: 0.05 } };
+    const { state, events } = closeDay(SAMPLE_STATE, { date: DATE, entries: [full("run")] }, config);
+    const expected = SAMPLE_STATE.character.strength + R.strength.fullGain - SAMPLE_STATE.character.strength * 0.05;
+    expect(state.character.strength).toBeCloseTo(expected);
+    expect(events).toContainEqual({ type: "strength_changed", delta: expect.closeTo(expected - SAMPLE_STATE.character.strength) });
+  });
+
   it("health and strength stay within 0 and their max", () => {
     const top = day(withCharacter({ health: R.health.max, strength: R.strength.max }), full("run")).state.character;
     expect(top.health).toBe(R.health.max);
