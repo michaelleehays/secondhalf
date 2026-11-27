@@ -20,31 +20,31 @@
       "bytes": 1740252,
       "meshes": {
         "body": {
-          "vertices": 13380,
+          "blenderVertices": 13380,
           "triangles": 26756
         },
         "eyes": {
-          "vertices": 144,
+          "blenderVertices": 144,
           "triangles": 280
         },
         "shorts": {
-          "vertices": 517,
+          "blenderVertices": 517,
           "triangles": 956
         },
         "kit_shoes": {
-          "vertices": 400,
+          "blenderVertices": 400,
           "triangles": 788
         },
         "kit_watch": {
-          "vertices": 102,
+          "blenderVertices": 102,
           "triangles": 156
         },
         "kit_jacket": {
-          "vertices": 2465,
+          "blenderVertices": 2465,
           "triangles": 4796
         },
         "kit_wraps": {
-          "vertices": 818,
+          "blenderVertices": 818,
           "triangles": 1479
         }
       }
@@ -53,31 +53,31 @@
       "bytes": 617372,
       "meshes": {
         "body": {
-          "vertices": 4015,
+          "blenderVertices": 4015,
           "triangles": 8026
         },
         "eyes": {
-          "vertices": 144,
+          "blenderVertices": 144,
           "triangles": 280
         },
         "shorts": {
-          "vertices": 273,
+          "blenderVertices": 273,
           "triangles": 478
         },
         "kit_shoes": {
-          "vertices": 143,
+          "blenderVertices": 143,
           "triangles": 274
         },
         "kit_watch": {
-          "vertices": 102,
+          "blenderVertices": 102,
           "triangles": 156
         },
         "kit_jacket": {
-          "vertices": 771,
+          "blenderVertices": 771,
           "triangles": 1438
         },
         "kit_wraps": {
-          "vertices": 356,
+          "blenderVertices": 356,
           "triangles": 590
         }
       }

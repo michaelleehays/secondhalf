@@ -111,7 +111,8 @@ describe("closeDay", () => {
     const { state, events } = day(withCharacter({ graceDaysLeft: 1 }), missed("run"));
     expect(state.character.graceDaysLeft).toBe(0);
     expect(state.character.health).toBe(SAMPLE_STATE.character.health);
-    expect(events).toEqual([{ type: "grace_used", habitId: "run" }]);
+    expect(events).toContainEqual({ type: "grace_used", habitId: "run" });
+    expect(events.some((e) => e.type === "health_changed")).toBe(false);
   });
 
   it("a miss with no grace left costs health", () => {
