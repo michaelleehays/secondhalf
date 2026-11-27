@@ -65,6 +65,11 @@ export interface GameAdapter {
   setVision(game: SavedGame, text: string): Promise<SavedGame>;
   /** False while the engine can't apply plan edits yet. */
   canEditPlan(state: GameState): boolean;
+  /**
+   * The latest game if it changed elsewhere (another tab or device, or the weekly job) since this
+   * adapter last loaded or saved it; null when nothing changed. Optional: only remote games change elsewhere.
+   */
+  refresh?(game: SavedGame): Promise<SavedGame | null>;
   /** Back to the sample player. */
   reset(today: IsoDate): Promise<SavedGame>;
   toWorldView(state: GameState): WorldView;

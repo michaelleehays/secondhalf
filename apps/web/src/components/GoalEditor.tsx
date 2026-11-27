@@ -63,6 +63,7 @@ function GoalFields({ goal, apply }: { goal: Goal; apply: Apply }) {
     const r = setGoalEdit(goal, form);
     if (!r.ok) return setOutcome({ status: "rejected", reason: r.error });
     setBusy(true);
+    setOutcome({ status: "saving" });
     setOutcome(await apply(r.value));
     setBusy(false);
   };
@@ -154,6 +155,7 @@ function HabitFields({ habit, locked, apply }: { habit: Habit; locked: boolean; 
 
   const run = async (edit: PlanEdit | null) => {
     setBusy(true);
+    setOutcome({ status: "saving" });
     setOutcome(await apply(edit));
     setBusy(false);
   };
@@ -210,6 +212,7 @@ function NewHabit({ state, goal, apply }: { state: GameState; goal: Goal; apply:
     const r = addHabitEdit(state, goal, form);
     if (!r.ok) return setOutcome({ status: "rejected", reason: r.error });
     setBusy(true);
+    setOutcome({ status: "saving" });
     const o = await apply(r.value);
     setBusy(false);
     setOutcome(o);

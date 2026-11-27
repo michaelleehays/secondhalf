@@ -10,22 +10,31 @@ import { supabaseConfig } from "../src/lib/supabase";
 const USER = "00000000-0000-4000-8000-000000000001";
 const TODAY = "2026-11-27";
 
+/** Lets other pending calls run, like a network round trip. */
+const tick = () => new Promise((r) => setTimeout(r, 1));
+
 /** An in-memory stand-in for the api client: one game per user, with save_step_result's version check. */
 function fakeApi(initial?: GameState) {
   const saves: { result: StepResult; expectedVersion: number | undefined }[] = [];
   let stored: { state: GameState; version: number } | null = initial ? { state: structuredClone(initial), version: 1 } : null;
-  const api: GameApi & { saves: typeof saves; bump: (s: GameState) => void } = {
+  let loads = 0;
+  const api: GameApi & { saves: typeof saves; bump: (s: GameState) => void; loads: () => number; stored: () => typeof stored } = {
     saves,
+    loads: () => loads,
+    stored: () => stored,
     bump: (s) => {
       stored = { state: structuredClone(s), version: (stored?.version ?? 0) + 1 };
     },
     async loadVersioned() {
+      await tick();
+      loads += 1;
       return stored ? { state: structuredClone(stored.state), version: stored.version } : null;
     },
     async loadGameState() {
       return stored ? structuredClone(stored.state) : null;
     },
     async saveStepResult(userId, result, options = {}) {
+      await tick();
       if (result.state.userId !== userId) throw new GameApiError("wrong user", "22023");
       const current = stored?.version ?? 0;
       if (options.expectedVersion !== undefined && options.expectedVersion !== current) throw new GameApiError("stale", STALE_SAVE);
@@ -135,5 +144,80 @@ describe("Supabase config", () => {
     expect(supabaseConfig({ url: "https://x.supabase.co" })).toBeNull();
     expect(supabaseConfig({ key: "k" })).toBeNull();
     expect(supabaseConfig({ url: " ", key: " " })).toBeNull();
+  });
+});
+
+describe("first sign-in, opened twice at once", () => {
+  it("one tab asking twice creates the game once", async () => {
+    const api = fakeApi();
+    const a = adapterFor(api);
+    const [g1, g2] = await Promise.all([a.load(TODAY), a.load(TODAY)]);
+    expect(api.saves).toHaveLength(1);
+    expect(g1.state).toEqual(g2.state);
+    // And the adapter holds the right version: the next save goes through.
+    await expect(a.setVision(g1, "Strong at 84.")).resolves.toMatchObject({ state: { vision: "Strong at 84." } });
+    expect(api.saves.map((s) => s.expectedVersion)).toEqual([0, 1]);
+  });
+
+  it("two tabs creating at once: the second uses the first's game instead of failing", async () => {
+    const api = fakeApi();
+    // Each tab has its own api client over the same database.
+    const tab1 = adapterFor(api);
+    const tab2 = adapterFor({ ...api });
+    const [g1, g2] = await Promise.all([tab1.load(TODAY), tab2.load(TODAY)]);
+    // Both found no game; one create was saved, the other was refused and loaded that game instead.
+    expect(api.loads()).toBe(3);
+    expect(api.saves).toHaveLength(1);
+    expect(g2.state).toEqual(g1.state);
+    // Both tabs can save afterwards; the one that's behind is told, gets the latest, and saves on retry.
+    await tab1.applyPlanEdit(g1, { kind: "rename_level", level: 2, name: "Engine room" });
+    const stale = await tab2.applyPlanEdit(g2, { kind: "rename_level", level: 3, name: "Deep water" }).catch((e) => e);
+    expect(stale).toBeInstanceOf(StaleGameError);
+    const latest = (stale as StaleGameError).game;
+    expect(latest.state.levelNames?.[2]).toBe("Engine room");
+    await tab2.applyPlanEdit(latest, { kind: "rename_level", level: 3, name: "Deep water" });
+    expect(api.stored()?.state.levelNames).toEqual({ 2: "Engine room", 3: "Deep water" });
+  });
+});
+
+describe("plan edits at every level reach save_step_result", () => {
+  it("renames all five levels and edits goals and habits on hidden, future ground", async () => {
+    const api = fakeApi();
+    const a = adapterFor(api);
+    let g = await a.load(TODAY);
+    expect(g.state.goals.find((x) => x.id === "body-401")?.status).toBe("hidden");
+    for (const level of [1, 2, 3, 4, 5] as const) g = (await a.applyPlanEdit(g, { kind: "rename_level", level, name: `Level ${level}` })).game;
+    g = (await a.applyPlanEdit(g, { kind: "set_goal", goalId: "body-401", title: "Strong at 84", verification: "Deadlift bodyweight" })).game;
+    g = (await a.applyPlanEdit(g, { kind: "set_goal", goalId: "money-301", goalKind: "system" })).game;
+    g = (
+      await a.applyPlanEdit(g, {
+        kind: "add_habit",
+        habit: { id: "body-301-long-run", goalId: "body-301", area: "body", title: "Long run", fullDose: "60 minutes", minimumDose: "20 minutes", weeklyTarget: { focus: 1, maintain: 1, rest: 0 }, maintenance: false },
+      })
+    ).game;
+    g = await a.setVision(g, "Free with my time.");
+    // One create plus nine edits, each saved against the version before it.
+    expect(api.saves.map((s) => s.expectedVersion)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    const stored = api.stored()!.state;
+    expect(stored.levelNames).toEqual({ 1: "Level 1", 2: "Level 2", 3: "Level 3", 4: "Level 4", 5: "Level 5" });
+    expect(stored.goals.find((x) => x.id === "body-401")).toMatchObject({ title: "Strong at 84", verification: "Deadlift bodyweight", status: "hidden" });
+    expect(stored.goals.find((x) => x.id === "money-301")?.kind).toBe("system");
+    expect(stored.habits.some((h) => h.id === "body-301-long-run")).toBe(true);
+    expect(stored.vision).toBe("Free with my time.");
+    expect(g.state).toEqual(stored);
+  });
+});
+
+describe("refresh", () => {
+  it("returns the latest game only when it changed elsewhere", async () => {
+    const api = fakeApi();
+    const a = adapterFor(api);
+    const g = await a.load(TODAY);
+    expect(await a.refresh!(g)).toBeNull();
+    api.bump({ ...g.state, score: 321 });
+    const latest = await a.refresh!(g);
+    expect(latest?.state.score).toBe(321);
+    // The adapter now holds that version, so a save goes through.
+    await expect(a.setVision(latest!, "x")).resolves.toBeTruthy();
   });
 });
