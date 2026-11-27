@@ -97,6 +97,33 @@ describe("Levels", () => {
     expect(goal(state, "body-201").frozen).toBe(true);
   });
 
+  it("re-clearing a level pays nothing: credits.levelCleared only above bestLevel", () => {
+    const dropped = checkLevels(set(SAMPLE_STATE, { "money-101": { status: "lost", progress: 0.5 } })).state;
+    expect(dropped.bestLevel).toBe(2);
+    const { state, events } = checkLevels(set(dropped, { "money-101": { status: "locked_in", progress: 1 } }));
+    expect(state.level).toBe(2);
+    expect(state.credits).toBe(SAMPLE_STATE.credits);
+    expect(events).toEqual([{ type: "level_up", level: 2 }]);
+  });
+
+  it("bestLevel undefined counts as the current level, and is set to the highest level reached", () => {
+    expect(SAMPLE_STATE.bestLevel).toBeUndefined();
+    const up = checkLevels(lockRing2(SAMPLE_STATE, "body", "mind", "work", "money")).state;
+    expect(up.bestLevel).toBe(3);
+    expect(up.credits).toBe(SAMPLE_STATE.credits + R.credits.levelCleared);
+    // At Level 201 with bestLevel unset, retaking 201 after a drop pays nothing.
+    const at1 = { ...set(SAMPLE_STATE, { "money-101": { status: "lost" } }), level: 1 as const, bestLevel: 2 as const };
+    const back = checkLevels(set(at1, { "money-101": { status: "locked_in", progress: 1 } })).state;
+    expect(back.credits).toBe(SAMPLE_STATE.credits);
+  });
+
+  it("clearing past bestLevel pays again for each new level", () => {
+    const start = { ...lockRing2(SAMPLE_STATE, "body", "mind", "work", "money"), bestLevel: 2 as const };
+    const { state } = checkLevels(start);
+    expect(state.credits).toBe(SAMPLE_STATE.credits + R.credits.levelCleared);
+    expect(state.bestLevel).toBe(3);
+  });
+
   it("reads goalsToClear from config", () => {
     const config = { ...R, levels: { goalsToClear: 3 } };
     expect(checkLevels(lockRing2(SAMPLE_STATE, "body", "mind", "work"), config).state.level).toBe(3);

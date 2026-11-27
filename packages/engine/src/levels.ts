@@ -21,8 +21,9 @@ function supportedLevel(goals: Goal[], config: RulesConfig): Level {
  * Levels. The player at level L works on ring L; every ring below it is ground that earned the level.
  *
  * - Clear: when `levels.goalsToClear` goals in ring L are held (locked in or at risk; lost does not count),
- *   the player moves up to L+1, earns `credits.levelCleared`, the next ring's goals open in the areas held,
- *   and goals on the new level are unfrozen.
+ *   the player moves up to L+1, the next ring's goals open in the areas held, and goals on the new level are
+ *   unfrozen. `credits.levelCleared` pays only for a level above `bestLevel` (missing = the current level),
+ *   so dropping and retaking a level pays nothing; `bestLevel` follows the highest level reached.
  * - Drop: when any ring below L holds fewer than `goalsToClear`, the player drops to that ring's level and
  *   goals above it freeze, progress kept. They come back when the ground is retaken.
  *
@@ -34,6 +35,7 @@ export function checkLevels(state: GameState, config: RulesConfig = DEFAULT_RULE
   let goals = state.goals;
   let credits = state.credits;
   let level = state.level;
+  const best = state.bestLevel ?? state.level;
 
   const target = supportedLevel(goals, config);
   if (target < level) {
@@ -45,14 +47,19 @@ export function checkLevels(state: GameState, config: RulesConfig = DEFAULT_RULE
     const heldAreas = new Set(goals.filter((g) => g.level === ring && held(g)).map((g) => g.area));
     level = (level + 1) as Level;
     goals = goals.map((g): Goal => (g.level === level && g.status === "hidden" && heldAreas.has(g.area) ? { ...g, status: "open" } : g));
-    credits += config.credits.levelCleared;
     events.push({ type: "level_up", level });
-    events.push({ type: "points", score: 0, credits: config.credits.levelCleared, reason: "level_cleared" });
+    if (level > best) {
+      credits += config.credits.levelCleared;
+      events.push({ type: "points", score: 0, credits: config.credits.levelCleared, reason: "level_cleared" });
+    }
   }
 
   goals = freezeAbove(goals, level);
   const changed = level !== state.level || credits !== state.credits || goals.some((g, i) => g !== state.goals[i]);
-  return { state: changed ? { ...state, level, goals, credits } : state, events };
+  if (!changed) return { state, events };
+  const next: GameState = { ...state, level, goals, credits };
+  if (level !== state.level) next.bestLevel = Math.max(best, level) as Level;
+  return { state: next, events };
 }
 
 /** Runs `checkLevels` after a step and appends its events. */
