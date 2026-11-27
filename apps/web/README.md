@@ -10,6 +10,10 @@ npm run check          # root: typecheck (packages + app), tests, app build
 
 `predev` and `prebuild` copy the athlete models from `assets/models` into `public/assets/models` (git-ignored), where the scene loads them.
 
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `NEXT_PUBLIC_ASSETS_BASE_URL` | `/assets` | Where the scene loads models from. Set it when the app is hosted under a subpath (e.g. `/second-half/assets`) or the models come from a CDN. Read at build time. |
+
 ## How it fits together
 
 | Piece | File | Notes |
@@ -19,7 +23,9 @@ npm run check          # root: typecheck (packages + app), tests, app build
 | Saved game | `src/lib/storage.ts` | `{ state, date, closedOn }` under `second-half:game:v1`. A missing, blocked or unreadable save starts the sample player |
 | Scene | `src/lib/sceneLoader.ts` | Loads `@second-half/scene` on demand; falls back to the flat map if WebGL is missing or the scene fails |
 | Flat map | `src/lib/placeholderScene.ts` | Implements `SceneHandle`. Draws a `WorldView`, no game logic |
-| Sheets | `src/components/Sheets.tsx` | Area, athlete, Vision and Resistance |
+| Sheets | `src/components/Sheets.tsx` | Area (with "I did it" for ready milestones), athlete, Vision and Resistance |
+| Your levels | `src/components/LevelsScreen.tsx`, `GoalEditor.tsx`, `src/lib/plan.ts` | Ladder 101 to 501, level names, goal and habit editing as `PlanEdit`s. Shows "Coming soon" while the engine's `applyPlanEdit` is a stub |
+| Config | `src/lib/config.ts` | `ASSETS_BASE_URL` |
 | Sheet copy | `src/lib/coach.ts` | Coach lines from state, rules and the last step's events |
 | Toasts | `src/lib/messages.ts` | Every `GameEvent` to coach-voice toasts, with day and week summaries |
 | Check-in | `src/components/CheckInSheet.tsx`, `src/lib/checkin.ts` | Done / Minimum / Missed + reason, builds a `CheckIn` |

@@ -86,8 +86,8 @@ changes. Per-cell effects find their cell through `CellView.goalId`.
 
 ## Performance and quality
 
-`createScene(container, { assetsBaseUrl, quality })` takes an optional `quality`: `"auto"` (default),
-`"high"` or `"low"`. It is a scene-package extension; the contract's `CreateScene` doesn't list it yet.
+`createScene(container, { assetsBaseUrl, quality })` takes the contract's optional `quality`:
+`"auto"` (default), `"high"` or `"low"`.
 
 | | high | low |
 | --- | --- | --- |

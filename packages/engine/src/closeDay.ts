@@ -14,6 +14,7 @@ import {
   type RulesConfig,
   type StepResult,
 } from "@second-half/contracts";
+import { withJournal } from "./journal";
 import { activeRules, adjustmentFor, daysBetween, hasEffect, reportsIn, usualMissOn } from "./resistance";
 import { appendHistory } from "./history";
 import { withLevels } from "./levels";
@@ -61,7 +62,7 @@ const lastWasMiss = (habit: Habit) => habit.history[habit.history.length - 1]?.r
  *
  * Callers must close each date once: closing the same date twice counts it twice.
  */
-export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig = DEFAULT_RULES): StepResult {
+function closeDayStep(state: GameState, checkIn: CheckIn, config: RulesConfig = DEFAULT_RULES): StepResult {
   if (state.recovery) return recoveryDay(state, checkIn, config);
   const events: GameEvent[] = [];
   const date = checkIn.date;
@@ -258,3 +259,8 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
 /** True when a system goal locked in during this step. */
 const lockedSystemGoal = (events: GameEvent[], state: GameState) =>
   events.some((e) => e.type === "locked_in" && state.goals.find((g) => g.id === e.goalId)?.kind === "system");
+
+/** closeDay with the step's notable moments added to `state.journal`. */
+export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig = DEFAULT_RULES): StepResult {
+  return withJournal(state, closeDayStep(state, checkIn, config), checkIn.date, config);
+}

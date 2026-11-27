@@ -14,14 +14,8 @@ import { Walker } from "./walker";
 
 type Selection = SceneTarget & { level?: Level };
 
-/**
- * createScene options. `quality` is a scene-package extension of the contract's options
- * (default "auto"); see quality.ts.
- */
-export interface SceneOptions {
-  assetsBaseUrl: string;
-  quality?: Quality;
-}
+/** createScene options, from the contract: `assetsBaseUrl` and optional `quality` (default "auto"). */
+export type SceneOptions = Parameters<CreateScene>[1];
 
 /** Pointer travel (px) beyond which a press counts as a drag, not a tap. */
 const DRAG_PX = 6;
@@ -38,7 +32,7 @@ const YAW_PER_PX = 0.004;
  *
  * Rendering pauses while the tab is hidden or the container is scrolled out of view.
  */
-export const createScene = async (container: HTMLElement, options: SceneOptions): Promise<SceneHandle> => {
+export const createScene: CreateScene = async (container, options) => {
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const phone = matchMedia("(pointer: coarse)").matches;
   const requested: Quality = options.quality ?? "auto";
@@ -65,7 +59,10 @@ export const createScene = async (container: HTMLElement, options: SceneOptions)
   scene.fog = fog;
 
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
-  const rig = new CameraRig(camera);
+  /** Resistance id to the area its marker stands in, from the latest view (for the camera). */
+  const resistanceAreas = new Map<string, AreaId>();
+  // Focused subjects sit in the upper part of the screen, clear of the app's bottom sheets.
+  const rig = new CameraRig(camera, (id) => resistanceAreas.get(id), FOCUSED_SUBJECT_Y);
 
   const hemi = new THREE.HemisphereLight(LIGHT.hemiWarm, 0x1a1612, 1.6);
   scene.add(hemi);
@@ -395,6 +392,8 @@ export const createScene = async (container: HTMLElement, options: SceneOptions)
       goalCells.clear();
       for (const c of next.cells) if (c.goalId) goalCells.set(c.goalId, { area: c.area, level: c.level });
       resistance.update(next.resistance, resolveGoal);
+      resistanceAreas.clear();
+      for (const r of next.resistance) resistanceAreas.set(r.id, r.targetArea);
       const [x, , z] = athleteSpot(next.level);
       if (firstView || reduceMotion) walker.place(x, z);
       else walker.setGoal(x, z);
@@ -442,9 +441,6 @@ export const createScene = async (container: HTMLElement, options: SceneOptions)
   return handle;
 };
 
-// The scene still satisfies the contract's CreateScene; `quality` is an optional extra.
-const _contract: CreateScene = createScene;
-void _contract;
 
 
 
@@ -462,6 +458,8 @@ const LIGHT_COLORS = {
   sunWarm: new THREE.Color(LIGHT.sunWarm),
   sunCool: new THREE.Color(LIGHT.sunCool),
 };
+/** Where a focused subject sits, as a share of the screen height from the top. */
+const FOCUSED_SUBJECT_Y = 0.3;
 /** Fog start and end, measured beyond the camera's distance from the summit axis. */
 const FOG = { near: 4, far: 40 } as const;
 /** Event colours not tied to an area. */
