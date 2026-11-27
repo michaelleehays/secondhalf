@@ -43,9 +43,6 @@ const runs = Object.fromEntries(
   (Object.keys(PROFILES) as (keyof typeof PROFILES)[]).map((name) => [name, SEEDS.map((seed) => simulate(PROFILES[name], seed))]),
 ) as Record<keyof typeof PROFILES, Step[][]>;
 
-if (process.env.SIM_REPORT) {
-  for (const [name, list] of Object.entries(runs)) list.forEach((steps, i) => console.log(name, SEEDS[i], JSON.stringify(summary(steps))));
-}
 
 describe("52-week simulation", () => {
   for (const [name, list] of Object.entries(runs)) {

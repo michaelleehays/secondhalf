@@ -2,7 +2,7 @@
  * Long-run simulation harness for the engine tests. A seeded player plays the sample state day by day:
  * a check-in every night, the weekly rollover and Sunday review every Sunday.
  */
-import { AREAS, DEFAULT_RULES, type CheckInEntry, type GameEvent, type GameState, type IsoDate, type ResistanceId } from "@second-half/contracts";
+import { DEFAULT_RULES, type CheckInEntry, type GameEvent, type GameState, type IsoDate, type ResistanceId, type RulesConfig } from "@second-half/contracts";
 import { SAMPLE_STATE } from "@second-half/contracts/fixtures";
 import { closeDay, closeReview, closeWeek } from "../src/index";
 
@@ -75,10 +75,35 @@ export interface Step {
   events: GameEvent[];
 }
 
-/** Plays `days` nights from the day after SAMPLE_STATE.today. Returns every step. */
-export function simulate(profile: Profile, seed: number, days = 364): Step[] {
+export interface SimOptions {
+  days?: number;
+  config?: RulesConfig;
+  start?: GameState;
+}
+
+/** A new player at 101: ring 101 open, everything above hidden, average strength, Resistance at its floor. */
+export const FRESH_START: GameState = {
+  ...SAMPLE_STATE,
+  level: 1,
+  score: 0,
+  credits: 0,
+  goals: SAMPLE_STATE.goals.map((g) => ({
+    ...g,
+    status: g.level === 1 ? "open" : "hidden",
+    progress: 0,
+    risk: 0,
+    frozen: false,
+    lockedInOn: undefined,
+  })),
+  resistance: Object.fromEntries(Object.entries(SAMPLE_STATE.resistance).map(([k, v]) => [k, { ...v, strength: 1, reports14d: 0 }])) as GameState["resistance"],
+  character: { health: DEFAULT_RULES.health.start, strength: 50, graceDaysLeft: DEFAULT_RULES.grace.perMonth },
+};
+
+/** Plays `days` nights from the day after the start state's `today`. Returns every step. */
+export function simulate(profile: Profile, seed: number, options: SimOptions = {}): Step[] {
+  const { days = 364, config = DEFAULT_RULES, start = SAMPLE_STATE } = options;
   const r = rng(seed);
-  let state = SAMPLE_STATE;
+  let state = start;
   const steps: Step[] = [];
   const push = (kind: Step["kind"], date: IsoDate, result: { state: GameState; events: GameEvent[] }) => {
     steps.push({ date, kind, before: state, state: result.state, events: result.events });
@@ -86,7 +111,7 @@ export function simulate(profile: Profile, seed: number, days = 364): Step[] {
   };
 
   for (let i = 0; i < days; i++) {
-    const date = addDays(SAMPLE_STATE.today, i + 1);
+    const date = addDays(start.today, i + 1);
     const plan = profile(i);
     state = retarget(state);
     const entries: CheckInEntry[] = state.habits
@@ -96,10 +121,10 @@ export function simulate(profile: Profile, seed: number, days = 364): Step[] {
           ? { habitId: h.id, result: r() < plan.full ? "full" : "minimum" }
           : { habitId: h.id, result: "missed", reason: pick(r, plan.reasons) },
       );
-    push("day", date, closeDay(state, { date, entries }, DEFAULT_RULES));
+    push("day", date, closeDay(state, { date, entries }, config));
     if (isSunday(date)) {
-      push("week", date, closeWeek(state, date, DEFAULT_RULES));
-      if (plan.done > 0) push("review", date, closeReview(state, date, DEFAULT_RULES));
+      push("week", date, closeWeek(state, date, config));
+      if (plan.done > 0) push("review", date, closeReview(state, date, config));
     }
   }
   return steps;
@@ -107,28 +132,55 @@ export function simulate(profile: Profile, seed: number, days = 364): Step[] {
 
 /** Numbers for the report: where each run ends and what happened along the way. */
 export function summary(steps: Step[]) {
+  const first = steps[0]!.before;
   const last = steps[steps.length - 1]!.state;
+  const days = steps.filter((s) => s.kind === "day");
   const count = (type: GameEvent["type"]) => steps.reduce((n, s) => n + s.events.filter((e) => e.type === type).length, 0);
-  const health = steps.filter((s) => s.kind === "day").map((s) => s.state.character.health);
+  const health = days.map((s) => s.state.character.health);
+  const strength = days.map((s) => s.state.character.strength);
+  const levelDay = (l: number) => {
+    const i = days.findIndex((s) => s.state.level >= l);
+    return i < 0 ? null : i + 1;
+  };
+  const mean = (xs: number[]) => Math.round((xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length)) * 10) / 10;
+  const setbackDays = days.map((s) => s.events.filter((e) => e.type === "setback").length);
   return {
     level: last.level,
-    score: last.score,
-    scoreGain: last.score - SAMPLE_STATE.score,
-    credits: last.credits,
-    health: last.character.health,
-    minHealth: Math.min(...health),
-    strength: last.character.strength,
-    lockedIn: last.goals.filter((g) => g.status === "locked_in").length,
-    atRisk: last.goals.filter((g) => g.status === "at_risk").length,
-    lost: last.goals.filter((g) => g.status === "lost").length,
+    scoreGain: last.score - first.score,
+    healthMin: Math.min(...health),
+    healthMean: mean(health),
+    /** Mean health from week 13 on, once the start state has washed out. */
+    healthMeanLate: mean(health.slice(84)),
+    daysBelow35: health.filter((h) => h < 35).length,
+    knockedDown: count("knocked_down"),
+    strengthDay42: strength[41] ?? null,
+    strengthDay84: strength[83] ?? null,
+    strengthMeanLate: mean(strength.slice(84)),
+    strengthEnd: last.character.strength,
     setbacks: count("setback"),
+    setbacksPerWeek: Math.round((setbackDays.reduce((a, b) => a + b, 0) / (days.length / 7)) * 100) / 100,
     rules: count("rule_adjusted"),
     groundLost: count("ground_lost"),
-    levelUps: count("level_up"),
     levelLost: count("level_lost"),
-    recoveries: count("recovery_started"),
-    knockedDown: count("knocked_down"),
-    daysKnockedDown: steps.filter((s) => s.kind === "day" && s.state.character.knockedDown).length,
-    resistance: Object.fromEntries(AREAS.length ? Object.values(last.resistance).map((x) => [x.id, x.strength]) : []),
+    recoveriesStarted: count("recovery_started"),
+    recoveriesCompleted: steps.reduce((n, s) => n + s.events.filter((e) => e.type === "recovery_ended" && e.completed).length, 0),
+    /** Day (1-based) each level was first reached. */
+    reached: { 2: levelDay(2), 3: levelDay(3), 4: levelDay(4), 5: levelDay(5) },
   };
+}
+
+export type Summary = ReturnType<typeof summary>;
+
+/**
+ * Balance harness: plays every profile for `seeds` from `start` under `config` and returns the summaries.
+ * Use it to compare rule sets: `balance(myRules)` and read the numbers against the targets.
+ */
+export function balance(config: RulesConfig = DEFAULT_RULES, options: { seeds?: number[]; days?: number; start?: GameState } = {}) {
+  const { seeds = [1, 7, 42], days = 364, start = FRESH_START } = options;
+  return Object.fromEntries(
+    (Object.keys(PROFILES) as (keyof typeof PROFILES)[]).map((name) => [
+      name,
+      seeds.map((seed) => summary(simulate(PROFILES[name], seed, { days, config, start }))),
+    ]),
+  ) as Record<keyof typeof PROFILES, Summary[]>;
 }
