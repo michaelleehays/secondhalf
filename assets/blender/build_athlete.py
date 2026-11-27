@@ -1,88 +1,589 @@
-# Builds assets/models/athlete.glb with Blender (pip package "bpy") and MPFB 2 installed as a user extension.
-# Install: pip install bpy==5.1.2, then clone https://github.com/makehumancommunity/mpfb2 and copy src/mpfb
-# to ~/.config/blender/5.1/extensions/user_default/mpfb
-# Run from the repo root: python3 -c "exec(open('assets/blender/build_athlete.py').read())"
-import bpy,addon_utils,numpy as np,bmesh
-addon_utils.enable("bl_ext.user_default.mpfb",default_set=True)
-P="bl_ext.user_default.mpfb."
-import importlib
-HS=importlib.import_module(P+"services.humanservice").HumanService
-TS=importlib.import_module(P+"services.targetservice").TargetService
-HOP=importlib.import_module(P+"entities.objectproperties").HumanObjectProperties
-import os
-OUT=os.environ.get('ATHLETE_OUT','assets/models/athlete.glb')  # run from the repo root
-for o in list(bpy.data.objects): bpy.data.objects.remove(o)
-AVG=dict(gender=1.0,age=0.63,muscle=0.55,weight=0.55,proportions=0.65,height=0.58)
-bm=HS.create_human(mask_helpers=False,macro_detail_dict={**AVG,'cupsize':.5,'firmness':.5,'race':{'asian':.33,'caucasian':.34,'african':.33}})
-def setm(**kw):
-    for k,v in kw.items(): HOP.set_value(k,v,entity_reference=bm)
-    TS.reapply_macro_details(bm,remove_zero_weight_targets=False)
-def coords():
-    dg=bpy.context.evaluated_depsgraph_get();ev=bm.evaluated_get(dg);me=ev.to_mesh()
-    a=np.empty(len(me.vertices)*3);me.vertices.foreach_get('co',a);ev.to_mesh_clear();return a.reshape(-1,3)
-shapes={}
-setm(muscle=.1,weight=1.0); shapes['soft']=coords()
-setm(muscle=1.0,weight=.3,proportions=1.0); shapes['athletic']=coords()
-setm(muscle=AVG['muscle'],weight=AVG['weight'],proportions=AVG['proportions']); base=coords()
-TS.bake_targets(bm)
-rig=HS.add_builtin_rig(bm,'mixamo',import_weights=True)
-print('rig',rig.name,len(rig.data.bones))
-# shape keys
-bm.shape_key_add(name='Basis',from_mix=False)
-for n,c in shapes.items():
-    k=bm.shape_key_add(name=n,from_mix=False);k.data.foreach_set('co',c.ravel())
-# split parts by vertex group
-def vg_verts(name):
-    gi=bm.vertex_groups[name].index
-    return {v.index for v in bm.data.vertices if any(g.group==gi and g.weight>.5 for g in v.groups)}
-keep={'hair':vg_verts('helper-hair'),'tights':vg_verts('helper-tights'),'eyes':vg_verts('helper-l-eye')|vg_verts('helper-r-eye')}
-helpers=vg_verts('HelperGeometry')|vg_verts('JointCubes')
-def separate(idx,name):
-    bpy.ops.object.select_all(action='DESELECT');bm.select_set(True);bpy.context.view_layer.objects.active=bm
-    bpy.ops.object.mode_set(mode='EDIT');bpy.ops.mesh.select_all(action='DESELECT');bpy.ops.object.mode_set(mode='OBJECT')
-    for v in bm.data.vertices: v.select=v.index in idx
-    bpy.ops.object.mode_set(mode='EDIT');bpy.ops.mesh.separate(type='SELECTED');bpy.ops.object.mode_set(mode='OBJECT')
-    new=[o for o in bpy.context.selected_objects if o!=bm][0];new.name=name;return new
-# delete unwanted helpers first
-drop=helpers-keep['tights']-keep['eyes']
-bpy.context.view_layer.objects.active=bm;bpy.ops.object.mode_set(mode='EDIT');bpy.ops.mesh.select_all(action='DESELECT');bpy.ops.object.mode_set(mode='OBJECT')
-for v in bm.data.vertices: v.select=v.index in drop
-bpy.ops.object.mode_set(mode='EDIT');bpy.ops.mesh.delete(type='VERT');bpy.ops.object.mode_set(mode='OBJECT')
-# recompute index sets after deletion via vertex groups
-parts={}
-for nm,groups in [('tights',['helper-tights']),('eyes',['helper-l-eye','helper-r-eye'])]:
-    s=set()
-    for g in groups: s|=vg_verts(g)
-    parts[nm]=separate(s,nm)
-bm.name='body'
-# crop tights to fight shorts: keep verts between mid-thigh and waist, then push outward along normals
-H=max(v.co.z for v in bm.data.vertices)-min(v.co.z for v in bm.data.vertices);z0=min(v.co.z for v in bm.data.vertices)
-t=parts['tights'];bpy.ops.object.select_all(action='DESELECT');t.select_set(True);bpy.context.view_layer.objects.active=t
-bpy.ops.object.mode_set(mode='EDIT');bpy.ops.mesh.select_all(action='DESELECT');bpy.ops.object.mode_set(mode='OBJECT')
-for v in t.data.vertices: v.select=not (z0+0.355*H < v.co.z < z0+0.58*H)
-bpy.ops.object.mode_set(mode='EDIT');bpy.ops.mesh.delete(type='VERT');bpy.ops.object.mode_set(mode='OBJECT')
-t.data.update()
-nrm=np.empty(len(t.data.vertices)*3);t.data.vertices.foreach_get('normal',nrm);nrm=nrm.reshape(-1,3)
-for kb in t.data.shape_keys.key_blocks:
-    c=np.empty(len(kb.data)*3);kb.data.foreach_get('co',c);c=c.reshape(-1,3)+nrm*0.011;kb.data.foreach_set('co',c.ravel())
-# scalp -> buzz cut material slot on body
-scalp_gi=bm.vertex_groups['scalp'].index
-scalp={v.index for v in bm.data.vertices if any(g.group==scalp_gi and g.weight>.3 for g in v.groups)}
+"""Build the Second Half athlete with headless Blender (pip "bpy") and MPFB 2.
 
-def mat(name,col,rough):
-    m=bpy.data.materials.new(name);m.use_nodes=True;b=m.node_tree.nodes['Principled BSDF'];b.inputs['Base Color'].default_value=(*col,1);b.inputs['Roughness'].default_value=rough;return m
-for o,m in [(bm,mat('Skin',(.55,.38,.29),.55)),(parts['tights'],mat('Tights',(.03,.03,.035),.6)),(parts['eyes'],mat('Eyes',(.05,.03,.02),.2))]:
-    o.data.materials.clear();o.data.materials.append(m)
-bm.data.materials.append(mat('Hair',(.04,.03,.025),.8))
-for poly in bm.data.polygons:
-    if all(i in scalp for i in poly.vertices): poly.material_index=1
-# clean vertex groups not bones (keeps file small)
-bones={b.name for b in rig.data.bones}
-for o in [bm,*parts.values()]:
-    for g in list(o.vertex_groups):
-        if g.name not in bones: o.vertex_groups.remove(g)
-    for p in o.data.polygons: p.use_smooth=True
-    print(o.name,len(o.data.vertices),[k.name for k in o.data.shape_keys.key_blocks] if o.data.shape_keys else None)
-bpy.ops.object.select_all(action='SELECT')
-bpy.ops.export_scene.gltf(filepath=OUT,export_format='GLB',use_selection=True,export_morph=True,export_skins=True,export_animations=False,export_apply=False,export_morph_normal=False)
-import os;print('size',os.path.getsize(OUT))
+Outputs (in ATHLETE_OUT_DIR, default assets/models):
+  athlete.glb               full model for desktop
+  athlete_mobile.glb        lighter model for phones (same rig, same morphs, same node names)
+  athlete.manifest.json     node names, morph names and vertex counts, for the scene
+
+Every mesh node is a separate object so the scene can toggle it:
+  body, eyes, shorts                         always on
+  kit_shoes, kit_watch, kit_jacket, kit_wraps  kit, toggle with node.visible
+All meshes share the Mixamo-named rig and carry the "soft" and "athletic" morph targets.
+Material names are stable (the scene keys on them): Skin, Hair, Eyes, Tights, Shoe, ShoeSole,
+Watch, WatchFace, Jacket, Wraps.
+
+Setup (once):
+  pip install bpy==5.1.2
+  git clone --depth 1 https://github.com/makehumancommunity/mpfb2
+  copy mpfb2/src/mpfb to ~/.config/blender/5.1/extensions/user_default/mpfb
+Run from the repo root:
+  python3 assets/blender/build_athlete.py
+"""
+import importlib
+import json
+import os
+
+import bpy  # must come first: it puts Blender's own modules on the path
+import addon_utils
+import bmesh
+import numpy as np
+from mathutils import Matrix, Vector
+from mathutils.bvhtree import BVHTree
+from mathutils.interpolate import poly_3d_calc
+
+OUT_DIR = os.environ.get("ATHLETE_OUT_DIR", "assets/models")
+
+# ---------------------------------------------------------------- tunables
+# Average 42-year-old build, and the two morph extremes the scene blends between.
+AVERAGE = dict(gender=1.0, age=0.63, muscle=0.55, weight=0.55, proportions=0.65, height=0.58)
+MORPHS = {
+    "soft": dict(muscle=0.1, weight=1.0),
+    "athletic": dict(muscle=1.0, weight=0.3, proportions=1.0),
+}
+RACE = {"asian": 0.33, "caucasian": 0.34, "african": 0.33}
+
+# Fight shorts: band of the tights helper between these fractions of body height.
+SHORTS_BAND = (0.355, 0.58)
+# Distance (metres) each kit shell sits off the surface it was cut from.
+OFFSET = dict(shorts=0.011, shoes=0.008, watch=0.004, jacket=0.016, wraps=0.004)
+# Smoothing passes before the offset: garments hide skin detail such as toes and abs.
+SMOOTH = dict(shorts=0, shoes=0, watch=2, jacket=6, wraps=0)
+SHOE_TOP = 0.045           # metres above the ankle joint
+SOLE_HEIGHT = 0.018        # faces below this height above the floor get the sole material
+SLEEVE_END = 0.80          # along the forearm, 0 elbow .. 1 wrist
+WATCH_BAND = (0.86, 0.93)  # left wrist
+WRAPS_START = 0.90         # both hands, from here on the forearm ...
+WRAPS_END = 0.90           # ... to here along the hand bone (1 = base of the fingers)
+JACKET_HEM = 0.565         # fraction of body height, overlapping the top of the shorts
+WATCH_FACE = dict(radius=0.019, depth=0.008, segments=20)
+
+# Phone model: fraction of faces kept per node (eyes and watch are already small).
+MOBILE_RATIO = dict(body=0.3, shorts=0.5, kit_shoes=0.35, kit_jacket=0.3, kit_wraps=0.4)
+
+COLORS = {  # linear RGB, roughness
+    "Skin": ((0.55, 0.38, 0.29), 0.55),
+    "Hair": ((0.04, 0.03, 0.025), 0.8),
+    "Eyes": ((0.05, 0.03, 0.02), 0.2),
+    "Tights": ((0.03, 0.03, 0.035), 0.6),
+    "Shoe": ((0.12, 0.13, 0.15), 0.5),
+    "ShoeSole": ((0.85, 0.84, 0.8), 0.7),
+    "Watch": ((0.02, 0.02, 0.02), 0.45),
+    "WatchFace": ((0.01, 0.012, 0.015), 0.15),
+    "Jacket": ((0.06, 0.07, 0.09), 0.65),
+    "Wraps": ((0.6, 0.08, 0.05), 0.85),
+}
+B = "mixamorig:"
+
+# ---------------------------------------------------------------- MPFB
+addon_utils.enable("bl_ext.user_default.mpfb", default_set=True)
+_P = "bl_ext.user_default.mpfb."
+HumanService = importlib.import_module(_P + "services.humanservice").HumanService
+TargetService = importlib.import_module(_P + "services.targetservice").TargetService
+HumanProps = importlib.import_module(_P + "entities.objectproperties").HumanObjectProperties
+
+
+def evaluated_coords(obj):
+    dg = bpy.context.evaluated_depsgraph_get()
+    ev = obj.evaluated_get(dg)
+    me = ev.to_mesh()
+    a = np.empty(len(me.vertices) * 3)
+    me.vertices.foreach_get("co", a)
+    ev.to_mesh_clear()
+    return a.reshape(-1, 3)
+
+
+def build_human():
+    """MPFB body with baked average shape, Mixamo rig and soft/athletic shape keys."""
+    body = HumanService.create_human(mask_helpers=False, macro_detail_dict={**AVERAGE, "cupsize": 0.5, "firmness": 0.5, "race": RACE})
+
+    def set_macros(values):
+        for k, v in values.items():
+            HumanProps.set_value(k, v, entity_reference=body)
+        TargetService.reapply_macro_details(body, remove_zero_weight_targets=False)
+
+    shapes = {}
+    for name, values in MORPHS.items():
+        set_macros(values)
+        shapes[name] = evaluated_coords(body)
+    set_macros({k: AVERAGE[k] for k in {k for v in MORPHS.values() for k in v}})
+    TargetService.bake_targets(body)
+    rig = HumanService.add_builtin_rig(body, "mixamo", import_weights=True)
+    body.shape_key_add(name="Basis", from_mix=False)
+    for name, co in shapes.items():
+        body.shape_key_add(name=name, from_mix=False).data.foreach_set("co", co.ravel())
+    return body, rig
+
+
+# ---------------------------------------------------------------- mesh helpers
+def group_weights(obj, names):
+    """Per-vertex sum of weights in the named vertex groups (missing groups count as 0)."""
+    idx = {obj.vertex_groups[n].index for n in names if n in obj.vertex_groups}
+    w = np.zeros(len(obj.data.vertices))
+    for v in obj.data.vertices:
+        w[v.index] = sum(g.weight for g in v.groups if g.group in idx)
+    return w
+
+
+def bone_share(obj, rig, names):
+    """Fraction of each vertex's skin weight that belongs to the named bones.
+
+    MPFB's Mixamo weights are not normalised (totals run from about 0.2 to 1.2), so raw
+    weights cannot be compared against a fixed threshold.
+    """
+    total = group_weights(obj, [b.name for b in rig.data.bones])
+    return group_weights(obj, names) / np.maximum(total, 1e-9)
+
+
+def coords(obj):
+    a = np.empty(len(obj.data.vertices) * 3)
+    obj.data.vertices.foreach_get("co", a)
+    return a.reshape(-1, 3)
+
+
+def delete_verts(obj, mask):
+    """Delete vertices where mask is True. bmesh keeps shape keys, weights and UVs."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    bmesh.ops.delete(bm, geom=[bm.verts[i] for i in np.flatnonzero(mask)], context="VERTS")
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+
+
+def copy_object(src, name):
+    obj = src.copy()
+    obj.data = src.data.copy()
+    obj.name = obj.data.name = name
+    bpy.context.collection.objects.link(obj)
+    return obj
+
+
+def cut_region(src, keep, name):
+    """New object holding only the vertices of src where keep is True (with weights and shape keys)."""
+    obj = copy_object(src, name)
+    delete_verts(obj, ~keep)
+    return obj
+
+
+def offset_shell(obj, distance, floor=None):
+    """Push every shape key outward along that key's own normals; optionally clamp to a floor height."""
+    keys = obj.data.shape_keys.key_blocks
+    for kb in keys:
+        co = np.empty(len(kb.data) * 3)
+        kb.data.foreach_get("co", co)
+        n = np.array(kb.normals_vertex_get()).reshape(-1, 3)
+        co = co.reshape(-1, 3) + n * distance
+        if floor is not None:
+            co[:, 2] = np.maximum(co[:, 2], floor)
+        kb.data.foreach_set("co", co.ravel())
+    obj.data.vertices.foreach_set("co", np.array([d.co[:] for d in keys[0].data]).ravel())
+    obj.data.update()
+
+
+def smooth_shell(obj, iterations, factor=0.5):
+    """Laplacian smoothing applied identically to every shape key, so the morphs stay in step.
+
+    Removes skin detail (toes, abs) that a garment would hide. Open edges stay put.
+    """
+    if iterations <= 0:
+        return
+    me = obj.data
+    e = np.empty(len(me.edges) * 2, int)
+    me.edges.foreach_get("vertices", e)
+    e = e.reshape(-1, 2)
+    n = len(me.vertices)
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    fixed = np.array([v.is_boundary for v in bm.verts])
+    bm.free()
+    deg = np.bincount(e.ravel(), minlength=n).astype(float)
+    move = np.where(fixed | (deg == 0), 0.0, factor)[:, None]
+    keys = me.shape_keys.key_blocks
+    for kb in keys:
+        co = np.empty(n * 3)
+        kb.data.foreach_get("co", co)
+        co = co.reshape(-1, 3)
+        for _ in range(iterations):
+            acc = np.zeros_like(co)
+            np.add.at(acc, e[:, 0], co[e[:, 1]])
+            np.add.at(acc, e[:, 1], co[e[:, 0]])
+            avg = acc / np.maximum(deg, 1)[:, None]
+            co = co + move * (avg - co)
+        kb.data.foreach_set("co", co.ravel())
+    me.vertices.foreach_set("co", np.array([d.co[:] for d in keys[0].data]).ravel())
+    me.update()
+
+
+def shape_deltas(obj):
+    keys = obj.data.shape_keys.key_blocks
+    base = np.array([d.co[:] for d in keys[0].data])
+    return {kb.name: np.array([d.co[:] for d in kb.data]) - base for kb in keys[1:]}
+
+
+def along_bone(co, rig, bone):
+    """Position of each vertex along a bone (0 head .. 1 tail) and its distance from the bone axis."""
+    b = rig.data.bones[bone]
+    h, t = np.array(b.head_local), np.array(b.tail_local)
+    ax = t - h
+    L = np.linalg.norm(ax)
+    s = (co - h) @ ax / (L * L)
+    radial = np.linalg.norm(co - h - np.outer(s, ax), axis=1)
+    return s, radial
+
+
+def separate_helpers(body):
+    """Drop MPFB helper geometry except tights and eyes, which become their own objects."""
+    def vg(names, thr=0.5):
+        return group_weights(body, names) > thr
+
+    helpers = vg(["HelperGeometry", "JointCubes"])
+    tights, eyes = vg(["helper-tights"]), vg(["helper-l-eye", "helper-r-eye"])
+    delete_verts(body, helpers & ~tights & ~eyes)
+    tights, eyes = vg(["helper-tights"]), vg(["helper-l-eye", "helper-r-eye"])
+    t = cut_region(body, tights, "shorts")
+    e = cut_region(body, eyes, "eyes")
+    delete_verts(body, tights | eyes)
+    return t, e
+
+
+def body_extent(body):
+    z = coords(body)[:, 2]
+    return z.min(), z.max() - z.min()
+
+
+# ---------------------------------------------------------------- clothes and kit
+def cut_plane(obj, point, normal, region=None):
+    """Cut obj with a plane and delete everything on the side the normal points to.
+
+    Only faces whose vertices are all inside region (a per-vertex mask) are touched, so one
+    cut can trim a sleeve without touching the torso. New vertices get interpolated weights,
+    UVs and shape keys, which gives clean edges instead of stair steps along the mesh.
+    """
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    if region is None:
+        region = np.ones(len(bm.verts), bool)
+    faces = [f for f in bm.faces if all(region[v.index] for v in f.verts)]
+    edges = list({e for f in faces for e in f.edges})
+    verts = list({v for f in faces for v in f.verts})
+    bmesh.ops.bisect_plane(bm, geom=faces + edges + verts, dist=1e-6, plane_co=Vector(point),
+                           plane_no=Vector(normal), clear_outer=True)
+    # bisect_plane can leave loose vertices on the cleared side
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context="VERTS")
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+
+
+def bone_frame(rig, bone):
+    b = rig.data.bones[bone]
+    return b.head_local.copy(), b.tail_local.copy()
+
+
+def near_bone(obj, rig, bone, lo, hi, radius):
+    """Mask of vertices whose position along the bone is within [lo, hi] and close to its axis."""
+    s, r = along_bone(coords(obj), rig, bone)
+    return (s > lo) & (s < hi) & (r < radius)
+
+
+def make_shorts(tights, z0, H):
+    lo, hi = (z0 + f * H for f in SHORTS_BAND)
+    cut_plane(tights, (0, 0, hi), (0, 0, 1))
+    cut_plane(tights, (0, 0, lo), (0, 0, -1))
+    smooth_shell(tights, SMOOTH["shorts"])
+    offset_shell(tights, OFFSET["shorts"])
+    return tights
+
+
+def make_shoes(body, rig, z0):
+    """Each shoe is the convex hull of one foot below the shoe top.
+
+    Hull vertices are original foot vertices, so they keep their skin weights and morphs.
+    The hull drops the toes and the arch, which is what a shoe does.
+    """
+    top = rig.data.bones[B + "LeftFoot"].head_local.z + SHOE_TOP
+    shoes = cut_region(body, coords(body)[:, 2] < top + 0.03, "kit_shoes")
+    cut_plane(shoes, (0, 0, top), (0, 0, 1))
+    bm = bmesh.new()
+    bm.from_mesh(shoes.data)
+    old_faces = list(bm.faces)
+    hull_verts = set()
+    for side in (1, -1):
+        foot = [v for v in bm.verts if v.co.x * side > 0]
+        out = bmesh.ops.convex_hull(bm, input=foot, use_existing_faces=False)
+        hull_verts |= {v for g in out["geom"] if isinstance(g, bmesh.types.BMFace) for v in g.verts}
+    bmesh.ops.delete(bm, geom=old_faces, context="FACES_ONLY")
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v not in hull_verts], context="VERTS")
+    # an edge loop just above the floor separates the sole from the upper
+    bmesh.ops.bisect_plane(bm, geom=list(bm.faces) + list(bm.edges) + list(bm.verts), dist=1e-6,
+                           plane_co=Vector((0, 0, z0 + SOLE_HEIGHT)), plane_no=Vector((0, 0, 1)))
+    bmesh.ops.triangulate(bm, faces=[f for f in bm.faces if len(f.verts) > 4])
+    bm.to_mesh(shoes.data)
+    bm.free()
+    shoes.data.update()
+    smooth_shell(shoes, SMOOTH["shoes"])
+    offset_shell(shoes, OFFSET["shoes"], floor=z0)
+    return shoes
+
+
+def _side_cut(obj, rig, side, bone, at, keep_toward_tail, lo, hi, radius=0.08):
+    h, t = bone_frame(rig, B + side + bone)
+    axis = (t - h).normalized()
+    cut_plane(obj, h.lerp(t, at), axis if not keep_toward_tail else -axis,
+              near_bone(obj, rig, B + side + bone, lo, hi, radius))
+
+
+def make_wraps(body, rig):
+    co = coords(body)
+    keep = np.zeros(len(co), bool)
+    for side in ("Left", "Right"):
+        s, r = along_bone(co, rig, B + side + "ForeArm")
+        hand = bone_share(body, rig, [n for n in body.vertex_groups.keys() if n.startswith(B + side + "Hand")])
+        keep |= ((s > WRAPS_START - 0.08) & (r < 0.08)) | (hand > 0.5)
+    wraps = cut_region(body, keep, "kit_wraps")
+    for side in ("Left", "Right"):
+        _side_cut(wraps, rig, side, "ForeArm", WRAPS_START, True, WRAPS_START - 0.15, 1.1)
+        # knuckles: plane across the hand, just short of the base of the fingers
+        _side_cut(wraps, rig, side, "Hand", WRAPS_END, False, 0.3, 3.0, radius=0.1)
+    smooth_shell(wraps, SMOOTH["wraps"])
+    offset_shell(wraps, OFFSET["wraps"])
+    return wraps
+
+
+def make_jacket(body, rig, z0, H):
+    co = coords(body)
+    torso_bones = [B + n for n in ("Hips", "Spine", "Spine1", "Spine2", "LeftUpLeg", "RightUpLeg")]
+    arm_bones = [B + s + n for s in ("Left", "Right") for n in ("Shoulder", "Arm", "ForeArm")]
+    torso, arms = bone_share(body, rig, torso_bones), bone_share(body, rig, arm_bones)
+    head = bone_share(body, rig, [B + "Neck", B + "Head"])
+    hands = bone_share(body, rig, [n for n in body.vertex_groups.keys() if "Hand" in n])
+    hem = z0 + JACKET_HEM * H
+    keep = (torso + arms + head > 0.5) & (hands < 0.5) & ~((torso > arms) & (co[:, 2] < hem - 0.04))
+    keep &= co[:, 2] < bone_frame(rig, B + "Head")[0].z
+    jacket = cut_region(body, keep, "kit_jacket")
+
+    torso_j = bone_share(jacket, rig, torso_bones) > bone_share(jacket, rig, arm_bones)
+    cut_plane(jacket, (0, 0, hem), (0, 0, -1), torso_j)
+    # neckline: just above the base of the neck, dipping toward the front (front is -y)
+    nh, nt = bone_frame(rig, B + "Neck")
+    neck_region = np.linalg.norm(coords(jacket) - np.array(nh), axis=1) < 0.16
+    cut_plane(jacket, nh + (nt - nh) * 0.15, Vector((0, -0.45, 1)).normalized(), neck_region)
+    for side in ("Left", "Right"):
+        _side_cut(jacket, rig, side, "ForeArm", SLEEVE_END, False, SLEEVE_END - 0.2, 1.3, radius=0.09)
+    smooth_shell(jacket, SMOOTH["jacket"])
+    offset_shell(jacket, OFFSET["jacket"])
+    return jacket
+
+
+def make_watch(body, rig):
+    """Band cut from the left wrist plus a rigid face on the back of the wrist."""
+    co = coords(body)
+    fore = B + "LeftForeArm"
+    s, r = along_bone(co, rig, fore)
+    arm = bone_share(body, rig, [fore, B + "LeftHand"])
+    band = (arm > 0.5) & (s > WATCH_BAND[0] - 0.06) & (s < WATCH_BAND[1] + 0.06) & (r < 0.07)
+    watch = cut_region(body, band, "kit_watch")
+    _side_cut(watch, rig, "Left", "ForeArm", WATCH_BAND[0], True, 0.5, 1.2)
+    _side_cut(watch, rig, "Left", "ForeArm", WATCH_BAND[1], False, 0.5, 1.2)
+    smooth_shell(watch, SMOOTH["watch"])
+    offset_shell(watch, OFFSET["watch"])
+
+    # Back of the wrist: for the left hand the palm normal is axis x thumb, so dorsal is its opposite.
+    bones = rig.data.bones
+    h, t = bones[fore].head_local, bones[fore].tail_local
+    axis = (t - h).normalized()
+    thumb = bones[B + "LeftHandThumb1"].head_local - bones[B + "LeftHand"].head_local
+    thumb = (thumb - axis * thumb.dot(axis)).normalized()
+    dorsal = -axis.cross(thumb).normalized()
+    centre = h.lerp(t, sum(WATCH_BAND) / 2)
+
+    wco = coords(watch)
+    radial = (wco - np.array(centre)) @ np.array(dorsal)
+    anchor = int(np.argmax(radial))  # band vertex furthest toward the back of the wrist
+    depth = WATCH_FACE["depth"]
+    pos = centre + dorsal * (radial[anchor] + depth / 2 - 0.002)
+
+    deltas = shape_deltas(watch)
+    weights = {watch.vertex_groups[g.group].name: g.weight for g in watch.data.vertices[anchor].groups}
+    rot = dorsal.to_track_quat("Z", "Y").to_matrix().to_4x4()
+
+    me = watch.data
+    set_materials(watch, "Watch", "WatchFace")
+    for p in me.polygons:
+        p.material_index = 0
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    deform = bm.verts.layers.deform.verify()
+    shape = {k: bm.verts.layers.shape[k] for k in bm.verts.layers.shape.keys()}
+    basis = me.shape_keys.key_blocks[0].name
+    made = bmesh.ops.create_cone(bm, cap_ends=True, segments=WATCH_FACE["segments"], radius1=WATCH_FACE["radius"],
+                                 radius2=WATCH_FACE["radius"], depth=depth, matrix=Matrix.Translation(pos) @ rot)
+    gidx = {n: watch.vertex_groups[n].index for n in weights}
+    for v in made["verts"]:
+        for n, w in weights.items():
+            v[deform][gidx[n]] = w
+        for name, layer in shape.items():
+            v[layer] = v.co + Vector(deltas[name][anchor]) if name != basis else v.co
+        for f in v.link_faces:
+            f.material_index = 1
+            f.smooth = False
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    return watch
+
+
+# ---------------------------------------------------------------- materials and cleanup
+_mats = {}
+
+
+def material(name):
+    if name not in _mats:
+        col, rough = COLORS[name]
+        m = bpy.data.materials.new(name)
+        m.use_nodes = True
+        bsdf = m.node_tree.nodes["Principled BSDF"]
+        bsdf.inputs["Base Color"].default_value = (*col, 1)
+        bsdf.inputs["Roughness"].default_value = rough
+        _mats[name] = m
+    return _mats[name]
+
+
+def set_materials(obj, *names):
+    obj.data.materials.clear()
+    for n in names:
+        obj.data.materials.append(material(n))
+
+
+def assign_faces(obj, mask_verts, slot):
+    for p in obj.data.polygons:
+        if all(mask_verts[i] for i in p.vertices):
+            p.material_index = slot
+
+
+def keep_only_bone_groups(obj, rig):
+    bones = {b.name for b in rig.data.bones}
+    for g in list(obj.vertex_groups):
+        if g.name not in bones:
+            obj.vertex_groups.remove(g)
+
+
+# ---------------------------------------------------------------- phone model
+def decimate_with_shape_keys(obj, ratio):
+    """Collapse-decimate a mesh that has shape keys.
+
+    Blender cannot apply a modifier to a mesh with shape keys, so: remember each key's offsets,
+    clear the keys, decimate (weights and UVs survive), then rebuild every key by sampling the
+    original offsets at the closest point on the original surface.
+    """
+    src_co = coords(obj)
+    src_polys = [tuple(p.vertices) for p in obj.data.polygons]
+    deltas = shape_deltas(obj)
+    tree = BVHTree.FromPolygons([Vector(c) for c in src_co], src_polys)
+
+    obj.shape_key_clear()
+    mod = obj.modifiers.new("decimate", "DECIMATE")
+    mod.decimate_type = "COLLAPSE"
+    mod.ratio = ratio
+    mod.use_collapse_triangulate = True
+    bpy.ops.object.select_all(action="DESELECT")
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    # The armature modifier is first in the stack; move decimate above it so it applies to rest shape.
+    bpy.ops.object.modifier_move_to_index(modifier=mod.name, index=0)
+    bpy.ops.object.modifier_apply(modifier=mod.name)
+
+    new_co = coords(obj)
+    sampled = {k: np.zeros_like(new_co) for k in deltas}
+    for i, c in enumerate(new_co):
+        hit, _, face, _ = tree.find_nearest(Vector(c))
+        poly = src_polys[face]
+        w = poly_3d_calc([Vector(src_co[j]) for j in poly], hit)
+        for k, d in deltas.items():
+            sampled[k][i] = sum(wi * d[j] for wi, j in zip(w, poly))
+    obj.shape_key_add(name="Basis", from_mix=False)
+    for k, d in sampled.items():
+        obj.shape_key_add(name=k, from_mix=False).data.foreach_set("co", (new_co + d).ravel())
+
+
+# ---------------------------------------------------------------- export
+def export(path, objects):
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in objects:
+        o.select_set(True)
+    bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True, export_morph=True,
+                              export_skins=True, export_animations=False, export_apply=False,
+                              export_morph_normal=False)
+    return os.path.getsize(path)
+
+
+def stats(meshes):
+    return {o.name: {"vertices": len(o.data.vertices), "triangles": sum(len(p.vertices) - 2 for p in o.data.polygons)}
+            for o in meshes}
+
+
+def main():
+    os.makedirs(OUT_DIR, exist_ok=True)
+    for o in list(bpy.data.objects):
+        bpy.data.objects.remove(o)
+
+    body, rig = build_human()
+    shorts, eyes = separate_helpers(body)
+    body.name = body.data.name = "body"
+    z0, H = body_extent(body)
+
+    # Buzz cut: the scalp is a second material slot on the body.
+    scalp = group_weights(body, ["scalp"]) > 0.3
+    keep_only_bone_groups(body, rig)
+
+    make_shorts(shorts, z0, H)
+    kit = [make_shoes(body, rig, z0), make_watch(body, rig), make_jacket(body, rig, z0, H), make_wraps(body, rig)]
+
+    set_materials(body, "Skin", "Hair")
+    assign_faces(body, scalp, 1)
+    set_materials(eyes, "Eyes")
+    set_materials(shorts, "Tights")
+    shoes, watch, jacket, wraps = kit
+    set_materials(shoes, "Shoe", "ShoeSole")
+    assign_faces(shoes, coords(shoes)[:, 2] < z0 + SOLE_HEIGHT, 1)
+    set_materials(jacket, "Jacket")
+    set_materials(wraps, "Wraps")
+    # watch materials were added in make_watch
+
+    meshes = [body, eyes, shorts, *kit]
+    for o in meshes:
+        keep_only_bone_groups(o, rig)
+        for p in o.data.polygons:
+            if o is not watch or p.material_index == 0:
+                p.use_smooth = True
+
+    full_stats = stats(meshes)
+    full_size = export(os.path.join(OUT_DIR, "athlete.glb"), [rig, *meshes])
+
+    for o in meshes:
+        if o.name in MOBILE_RATIO:
+            decimate_with_shape_keys(o, MOBILE_RATIO[o.name])
+            for p in o.data.polygons:
+                p.use_smooth = True
+    mobile_stats = stats(meshes)
+    mobile_size = export(os.path.join(OUT_DIR, "athlete_mobile.glb"), [rig, *meshes])
+
+    manifest = {
+        "rig": "mixamo",
+        "morphTargets": list(MORPHS),
+        "alwaysOn": ["body", "eyes", "shorts"],
+        "kit": {"shoes": "kit_shoes", "watch": "kit_watch", "jacket": "kit_jacket", "wraps": "kit_wraps"},
+        "files": {
+            "athlete.glb": {"bytes": full_size, "meshes": full_stats},
+            "athlete_mobile.glb": {"bytes": mobile_size, "meshes": mobile_stats},
+        },
+    }
+    with open(os.path.join(OUT_DIR, "athlete.manifest.json"), "w") as f:
+        json.dump(manifest, f, indent=2)
+        f.write("\n")
+    print(json.dumps(manifest, indent=2))
+
+
+main()
