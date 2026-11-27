@@ -26,6 +26,7 @@ export interface RulesConfig {
   /** Score multiplier by level (index = level). */
   levelMultiplier: Record<1 | 2 | 3 | 4 | 5, number>;
   health: {
+    max: number;
     start: number;
     missCost: number;
     /** Multiplier on missCost for a second miss in a row on the same habit. */
@@ -38,6 +39,7 @@ export interface RulesConfig {
     getUpHealth: number;
   };
   strength: {
+    max: number;
     idleWeekCost: number;
     fullGain: number;
     minimumGain: number;
@@ -53,7 +55,15 @@ export interface RulesConfig {
     lostRestartProgress: number;
   };
   levels: { goalsToClear: number };
-  progress: { idleWeekDecay: number };
+  progress: {
+    idleWeekDecay: number;
+    /** Goal progress (0..1) added by one full check-in of a habit that serves the goal, unless the goal has a program. */
+    perFull: number;
+    /** Goal progress added by one minimum check-in. */
+    perMinimum: number;
+  };
+  /** Days of check-in history kept per habit. */
+  history: { days: number };
   maintenance: { maxWeeklyHabits: number };
   recovery: { healthBelow: number; atRiskGoals: number; days: number; daysNeeded: number; restoreHealth: number };
   adaptation: { ruleWeeks: number };
@@ -74,6 +84,7 @@ export const DEFAULT_RULES: RulesConfig = {
   credits: { habitFull: 10, habitMinimum: 4, programWeek: 25, goalLockedInPerLevel: 100, levelCleared: 500, weeklyReview: 10 },
   levelMultiplier: { 1: 1, 2: 1.25, 3: 1.5, 4: 1.75, 5: 2 },
   health: {
+    max: 100,
     start: 80,
     missCost: 6,
     doubleMissFactor: 2,
@@ -84,12 +95,13 @@ export const DEFAULT_RULES: RulesConfig = {
     getUpAfterPlays: 3,
     getUpHealth: 30,
   },
-  strength: { idleWeekCost: 3, fullGain: 1, minimumGain: 0.5 },
+  strength: { max: 100, idleWeekCost: 3, fullGain: 1, minimumGain: 0.5 },
   grace: { perMonth: 2, maxHeld: 4 },
   resistance: { max: 5, setbackAt: 5, gamePlanDamageFactor: 0.5, maxEquippedPlans: 3 },
   risk: { missesToTrigger: 3, perBadWeek: 25, fullCleanDay: 20, minimumCleanDay: 10, lostRestartProgress: 0.5 },
   levels: { goalsToClear: 4 },
-  progress: { idleWeekDecay: 0.08 },
+  progress: { idleWeekDecay: 0.08, perFull: 0.07, perMinimum: 0.03 },
+  history: { days: 14 },
   maintenance: { maxWeeklyHabits: 6 },
   recovery: { healthBelow: 25, atRiskGoals: 2, days: 7, daysNeeded: 5, restoreHealth: 30 },
   adaptation: { ruleWeeks: 2 },
