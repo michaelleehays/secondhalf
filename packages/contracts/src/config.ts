@@ -99,6 +99,7 @@ export interface RulesConfig {
   program: { defaultThreshold: number };
   life: { defaultEndAge: number };
   season: { weeks: number };
+  journal: { maxEntries: number };
 }
 
 export const DEFAULT_RULES: RulesConfig = {
@@ -145,4 +146,5 @@ export const DEFAULT_RULES: RulesConfig = {
   program: { defaultThreshold: 3 },
   life: { defaultEndAge: 84 },
   season: { weeks: 12 },
+  journal: { maxEntries: 200 },
 };
