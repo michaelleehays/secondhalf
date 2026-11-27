@@ -11,7 +11,7 @@ function snapshotOf(s: GameState): GameSnapshot {
     profile: {
       id: s.userId, birth_year: s.birthYear, end_age: s.endAge, timezone: s.timezone, today: s.today,
       level: s.level, best_level: s.bestLevel ?? null, last_review_on: s.lastReviewOn ?? null,
-      level_names: s.levelNames ?? null,
+      level_names: s.levelNames ?? null, vision: s.vision ?? null,
       score: s.score, credits: s.credits, version: 0,
     },
     areas: Object.entries(s.modes).map(([area, mode]) => ({
@@ -72,6 +72,7 @@ const RICH: GameState = {
   bestLevel: 3,
   lastReviewOn: "2026-11-22",
   levelNames: { 1: "Getting started", 3: "The long game" },
+  vision: "Strong at 84. Free with my time. Surrounded by people I love.",
   character: { ...SAMPLE_STATE.character, health: 0, knockedDown: { since: "2026-11-25", plays: 1 } },
 };
 
@@ -99,6 +100,7 @@ describe("toGameState", () => {
     expect("bestLevel" in toGameState(snapshotOf(noBest))).toBe(false);
     expect("lastReviewOn" in loaded).toBe(false);
     expect("levelNames" in loaded).toBe(false);
+    expect("vision" in loaded).toBe(false);
     expect("verification" in goal || "verifiedOn" in goal).toBe(false);
     const day = toGameState(snapshotOf(RICH)).habits.find((h) => h.id === "run")!.history[1]!;
     expect("reason" in day).toBe(false);
