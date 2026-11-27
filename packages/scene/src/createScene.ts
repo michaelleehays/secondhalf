@@ -1,11 +1,15 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import type { CreateScene, GameEvent, Level, SceneHandle, SceneTarget, WorldView } from "@second-half/contracts";
+import { AREAS } from "@second-half/contracts";
+import type { AreaId, CellView, CreateScene, GameEvent, Level, ResistanceId, SceneHandle, SceneTarget, WorldView } from "@second-half/contracts";
 import { athleteModelUrl, createAthlete, type Athlete } from "./athlete";
+import { createRingBurst } from "./burst";
 import { CameraRig } from "./camera";
-import { athleteSpot, normalAt, ringAt, sectorAt } from "./layout";
-import { WORLD_HEX } from "./palette";
+import { RING_OUTER, athleteSpot, cellIndex, heightAt, normalAt, ringAt, sectorAt } from "./layout";
+import { AREA_HEX, WORLD_HEX } from "./palette";
+import { createResistanceLayer, type AttackTarget } from "./resistance";
 import { createTerrain } from "./terrain";
+import { Walker } from "./walker";
 
 type Selection = SceneTarget & { level?: Level };
 
@@ -44,8 +48,9 @@ export const createScene: CreateScene = async (container, options) => {
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
   const rig = new CameraRig(camera);
 
-  scene.add(new THREE.HemisphereLight(0xb8c6d8, 0x1a1612, 1.6));
-  const sun = new THREE.DirectionalLight(0xffc690, 2.6);
+  const hemi = new THREE.HemisphereLight(LIGHT.hemiWarm, 0x1a1612, 1.6);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(LIGHT.sunWarm, 2.6);
   sun.position.set(14, 16, 10);
   scene.add(sun);
   const rim = new THREE.DirectionalLight(0x8fb4ff, 1.2);
@@ -57,6 +62,10 @@ export const createScene: CreateScene = async (container, options) => {
 
   const terrain = createTerrain({ segments: phone ? 160 : 230 });
   scene.add(terrain.mesh, terrain.extras);
+  const resistance = createResistanceLayer();
+  scene.add(resistance.group);
+  const burst = createRingBurst(WORLD_HEX.summit);
+  scene.add(burst.mesh);
 
   /* ---------- athlete ---------- */
   const athleteRoot = new THREE.Group();
@@ -64,11 +73,15 @@ export const createScene: CreateScene = async (container, options) => {
   scene.add(athleteRoot);
   const marker = createMarker();
   athleteRoot.add(marker.group);
-  const athleteGoal = new THREE.Vector3(...athleteSpot(1));
-  athleteRoot.position.copy(athleteGoal);
+  const walker = new Walker();
+  {
+    const [x, y, z] = athleteSpot(1);
+    walker.place(x, z);
+    athleteRoot.position.set(x, y, z);
+  }
   let athlete: Athlete | null = null;
 
-  const pickable: THREE.Object3D[] = [terrain.mesh, terrain.summit];
+  const pickable: THREE.Object3D[] = [terrain.mesh, terrain.summit, ...resistance.hitProxies];
 
   let view: WorldView | null = null;
   let disposed = false;
@@ -137,6 +150,11 @@ export const createScene: CreateScene = async (container, options) => {
     const hit = ray.intersectObjects(pickable, false)[0];
     if (!hit) return null;
     if (athlete && hit.object === athlete.hitProxy) return { kind: "athlete" };
+    const resistanceId = hit.object.userData.resistance as ResistanceId | undefined;
+    if (resistanceId) {
+      // SceneTarget has no Resistance kind yet, so a marker reports the area it attacks.
+      return { kind: "area", area: hit.object.userData.targetArea as AreaId, level: 1 };
+    }
     if (hit.object === terrain.summit) return { kind: "vision", level: 5 };
     const ring = ringAt(Math.hypot(hit.point.x, hit.point.z));
     if (ring === 0) return { kind: "home" };
@@ -158,10 +176,22 @@ export const createScene: CreateScene = async (container, options) => {
     flashLight.intensity = intensity;
   }
 
+  /** Goal id to cell, from the latest view. Filled only when cells carry a goalId (see below). */
+  const goalCells = new Map<string, AttackTarget>();
+  const resolveGoal = (goalId: string) => goalCells.get(goalId) ?? null;
+  const cellOf = (goalId: string) => {
+    const c = goalCells.get(goalId);
+    return c ? cellIndex(c.area, c.level) : -1;
+  };
+  const areaColor = new THREE.Color();
+  const CALM = new THREE.Color(EFFECT_HEX.calm);
+  const GOLD = new THREE.Color(WORLD_HEX.summit);
+
   function play(event: GameEvent) {
     switch (event.type) {
       case "setback":
         athlete?.hit(1);
+        resistance.strike(event.resistance);
         if (!reduceMotion) rig.shake(1);
         flash(0xff3030, 12);
         break;
@@ -171,30 +201,83 @@ export const createScene: CreateScene = async (container, options) => {
         if (!reduceMotion) rig.shake(0.6);
         flash(0xff3030, 8);
         break;
-      case "locked_in":
+      case "locked_in": {
+        athlete?.celebrate();
+        flash(0xffc870, 10);
+        const c = goalCells.get(event.goalId);
+        if (c) terrain.flashCell(cellIndex(c.area, c.level), areaColor.set(AREA_HEX[c.area]), 1);
+        break;
+      }
+      case "at_risk": {
+        const i = cellOf(event.goalId);
+        if (i >= 0) terrain.pulseCell(i, 1);
+        break;
+      }
+      case "risk_cleared": {
+        const i = cellOf(event.goalId);
+        if (i >= 0) terrain.flashCell(i, CALM, 0.5);
+        break;
+      }
+      case "ground_lost": {
+        const i = cellOf(event.goalId);
+        if (i >= 0) {
+          terrain.darkenCell(i, 1);
+          if (!reduceMotion) terrain.shakeCell(i, 1);
+        }
+        if (!reduceMotion) rig.shake(0.3);
+        break;
+      }
       case "level_up":
         athlete?.celebrate();
         flash(0xffc870, 10);
+        if (!reduceMotion) burst.fire(RING_OUTER[Math.min(event.level, 5) - 1]!);
+        for (const area of AREAS) if (event.level <= 4) terrain.flashCell(cellIndex(area, event.level as 1 | 2 | 3 | 4), GOLD, 0.6);
+        break;
+      case "level_lost":
+        athlete?.hit(0.4);
+        break;
+      case "resistance_changed":
+        resistance.strike(event.id);
+        break;
+      case "recovery_started":
+        flash(LIGHT.recoveryFlash, 10);
+        recoveryGoal = 1;
         break;
       default:
-        // Other events show in the app's UI; Resistance attack animations land with the markers.
+        // Points, grace, rules and the rest show in the app's UI.
         break;
     }
   }
 
   /* ---------- loop ---------- */
-  const timer = new THREE.Timer();
   let raf = 0;
+  /** rAF timestamps (ms) of the first and the previous frame; null until the first frame. */
+  let startMs: number | null = null;
+  let lastMs = 0;
   let first = true;
+  /** 0 normal light .. 1 the cooler Recovery light, eased toward recoveryGoal. */
+  let recovery = 0;
+  let recoveryGoal = 0;
   const frame = (now: number) => {
     raf = requestAnimationFrame(frame);
-    timer.update(now);
-    const dt = Math.min(0.05, timer.getDelta());
-    const t = reduceMotion ? 0 : timer.getElapsed();
-    terrain.tick(t);
-    athleteRoot.position.lerp(athleteGoal, first ? 1 : 1 - Math.pow(0.1, dt));
+    if (startMs === null) startMs = lastMs = now;
+    // Clamp to [0, 50 ms]: a negative or NaN step would poison every eased value downstream.
+    const step = (now - lastMs) / 1000;
+    lastMs = now;
+    const dt = step > 0 ? Math.min(0.05, step) : 0;
+    const t = reduceMotion ? 0 : (now - startMs) / 1000;
+    terrain.tick(t, dt);
+    resistance.tick(t, dt);
+    burst.tick(dt);
+    walker.step(dt);
+    athleteRoot.position.set(walker.x, heightAt(walker.x, walker.z), walker.z);
     marker.tick(t, athleteRoot.position);
+    recovery += (recoveryGoal - recovery) * (1 - Math.pow(0.1, dt));
+    hemi.color.lerpColors(LIGHT_COLORS.hemiWarm, LIGHT_COLORS.hemiCool, recovery);
+    sun.color.lerpColors(LIGHT_COLORS.sunWarm, LIGHT_COLORS.sunCool, recovery);
+    sun.intensity = 2.6 - 0.6 * recovery;
     if (athlete) {
+      athlete.setMotion(walker.walk, walker.phase, walker.facing);
       athlete.tick(dt, t);
       // Lying down, the body also tilts onto the slope, like the ring under it.
       athlete.root.quaternion.identity().slerp(marker.group.quaternion, athlete.down);
@@ -209,9 +292,21 @@ export const createScene: CreateScene = async (container, options) => {
   const handle: SceneHandle = {
     update(next) {
       if (disposed) return;
+      const firstView = view === null;
       view = next;
       terrain.setCells(next.cells);
-      athleteGoal.set(...athleteSpot(next.level));
+      goalCells.clear();
+      for (const c of next.cells) {
+        // CellView has no goal id in the contract yet; use it when the engine provides one.
+        const goalId = (c as CellView & { goalId?: string }).goalId;
+        if (goalId) goalCells.set(goalId, { area: c.area, level: c.level });
+      }
+      resistance.update(next.resistance, resolveGoal);
+      const [x, , z] = athleteSpot(next.level);
+      if (firstView || reduceMotion) walker.place(x, z);
+      else walker.setGoal(x, z);
+      recoveryGoal = next.inRecovery ? 1 : 0;
+      if (firstView) recovery = recoveryGoal;
       athlete?.setView(next.athlete);
     },
     play(event) {
@@ -239,10 +334,11 @@ export const createScene: CreateScene = async (container, options) => {
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
       selectCbs.length = 0;
-      timer.dispose();
       terrain.dispose();
       athlete?.dispose();
       marker.dispose();
+      resistance.dispose();
+      burst.dispose();
       renderer.forceContextLoss();
       renderer.dispose();
       canvas.remove();
@@ -250,6 +346,25 @@ export const createScene: CreateScene = async (container, options) => {
   };
   return handle;
 };
+
+
+
+/** Scene light colours: warm by default, cooler during Recovery. */
+const LIGHT = {
+  hemiWarm: 0xb8c6d8,
+  hemiCool: 0x9cc2ff,
+  sunWarm: 0xffc690,
+  sunCool: 0xb4d0ff,
+  recoveryFlash: 0x8ec5f2,
+} as const;
+const LIGHT_COLORS = {
+  hemiWarm: new THREE.Color(LIGHT.hemiWarm),
+  hemiCool: new THREE.Color(LIGHT.hemiCool),
+  sunWarm: new THREE.Color(LIGHT.sunWarm),
+  sunCool: new THREE.Color(LIGHT.sunCool),
+};
+/** Event colours not tied to an area. */
+const EFFECT_HEX = { calm: "#cfefdb" } as const;
 
 /** The orange "you" ring and a soft contact shadow under the athlete. */
 function createMarker() {

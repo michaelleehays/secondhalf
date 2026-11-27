@@ -70,3 +70,12 @@ describe("poseAt reuse", () => {
     expect(s.bones.RightShoulder[1]).toBeGreaterThan(0);
   });
 });
+
+describe("walk cycle", () => {
+  it("swings the legs in opposition and is gone when not walking", () => {
+    const step = poseAt({ ...base, walk: 1, walkPhase: Math.PI / 2 });
+    expect(step.bones.LeftUpLeg[0]).toBeGreaterThan(0.3);
+    expect(step.bones.RightUpLeg[0]).toBeLessThan(-0.3);
+    expect(poseAt({ ...base, walk: 0, walkPhase: Math.PI / 2 }).bones.LeftUpLeg).toEqual(poseAt(base).bones.LeftUpLeg);
+  });
+});

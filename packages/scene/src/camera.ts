@@ -55,8 +55,9 @@ export function shotFor(target: SceneTarget, ctx: ShotContext, out?: CameraShot)
       const a = sectorMidRad(target.area);
       const dx = Math.sin(a);
       const dz = Math.cos(a);
-      shot.pos.set(dx * 30, 15, dz * 30);
-      shot.look.set(dx * 11, 3, dz * 11);
+      // Looks down the slice from above its foot, so the Resistance marker at the base is in frame.
+      shot.pos.set(dx * 33, 16, dz * 33);
+      shot.look.set(dx * 14, 2.2, dz * 14);
       break;
     }
     case "vision": {

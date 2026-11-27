@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { WorldView } from "@second-half/contracts";
-import { CELEBRATE_SECONDS, HIT_DECAY, POSED_BONES, emptyPose, poseAt, type PosedBone } from "./poses";
+import { CELEBRATE_SECONDS, HIT_DECAY, POSED_BONES, emptyPose, poseAt, type PoseInput, type PosedBone } from "./poses";
 
 /** Kit nodes in the athlete model (see assets/models/athlete.manifest.json). Hidden by default. */
 export const KIT_NODES = ["kit_jacket", "kit_shoes", "kit_watch", "kit_wraps"] as const;
@@ -26,6 +26,11 @@ export interface Athlete {
   celebrate(): void;
   /** Force the down pose until the next view says otherwise. */
   knockDown(): void;
+  /**
+   * Locomotion from the scene: `walk` 0..1 blends the walk cycle in, `phase` advances with
+   * distance travelled, `facing` is the yaw (radians, 0 = facing +z) the body turns to.
+   */
+  setMotion(walk: number, phase: number, facing: number): void;
   tick(dt: number, time: number): void;
   dispose(): void;
 }
@@ -93,12 +98,16 @@ export function createAthlete(model: THREE.Object3D): Athlete {
   const cur = { build: 0, slump: 0, down: 0 };
   let hitAmt = 0;
   let celebrate = 0;
+  let walk = 0;
+  let walkPhase = 0;
+  let facing = 0;
   let first = true;
 
   const q = new THREE.Quaternion();
   const e = new THREE.Euler();
   const v = new THREE.Vector3();
   const pose = emptyPose();
+  const poseInput: PoseInput = { time: 0, slump: 0, down: 0, hit: 0, celebrate: 0, walk: 0, walkPhase: 0 };
   const r = new THREE.Quaternion();
   /** Pelvis position at rest in character space (root and body are at the origin while we build). */
   const pelvis = hips ? hips.bone.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(0, 1, 0);
@@ -137,6 +146,11 @@ export function createAthlete(model: THREE.Object3D): Athlete {
     knockDown() {
       target = { ...target, down: 1 };
     },
+    setMotion(w, phase, yaw) {
+      walk = clamp(w, 0, 1);
+      walkPhase = phase;
+      facing = yaw;
+    },
     tick(dt, time) {
       cur.build += (target.build - cur.build) * (1 - Math.pow(EASE.build, dt));
       cur.slump += (target.slump - cur.slump) * (1 - Math.pow(EASE.slump, dt));
@@ -148,7 +162,14 @@ export function createAthlete(model: THREE.Object3D): Athlete {
       }
       applyMorphs();
 
-      poseAt({ time, slump: cur.slump, down: cur.down, hit: hitAmt, celebrate }, pose);
+      poseInput.time = time;
+      poseInput.slump = cur.slump;
+      poseInput.down = cur.down;
+      poseInput.hit = hitAmt;
+      poseInput.celebrate = celebrate;
+      poseInput.walk = walk;
+      poseInput.walkPhase = walkPhase;
+      poseAt(poseInput, pose);
       for (const [key, rb] of bones) {
         const off = pose.bones[key];
         // Character-space rotation R becomes a local offset W⁻¹·R·W on top of the rest pose.
@@ -159,7 +180,7 @@ export function createAthlete(model: THREE.Object3D): Athlete {
         v.set(pose.hips[0], pose.hips[1], pose.hips[2]).applyQuaternion(hipsParentInv);
         hips.bone.position.copy(hipsRest).add(v);
       }
-      body.rotation.set(pose.root[0], pose.root[1], pose.root[2]);
+      body.rotation.set(pose.root[0], pose.root[1] + facing, pose.root[2]);
       // Turn about the pelvis rather than the feet, so a fall keeps the body over its spot.
       v.copy(pelvis).applyQuaternion(r.setFromEuler(body.rotation)).sub(pelvis);
       body.position.set(-v.x, pose.lift, -v.z);

@@ -24,6 +24,9 @@ scene.dispose();
 | `src/camera.ts` | Camera shots for `home`, `area`, `athlete`, `vision`, and the drag-to-turn rig. |
 | `src/poses.ts` | Procedural poses (idle breathing, slump, hit, celebration, down). Pure, tested. |
 | `src/athlete.ts` | Wraps the athlete glTF: morphs from `build`, poses on the Mixamo bones, kit toggles. |
+| `src/resistance.ts` | Resistance markers (size and glow by strength) and dashed attack lines. |
+| `src/walker.ts` | Walks the athlete between level spots at walking pace. Pure, tested. |
+| `src/burst.ts` | Gold ring burst for `level_up`. |
 | `src/createScene.ts` | `createScene`: renderer, lights, input, loop, events, `SceneHandle`. |
 | `demo/` | Demo page, not shipped: `npm run demo -w @second-half/scene`. |
 
@@ -61,7 +64,29 @@ local frame. When workstream D ships clips, a mixer can drive the rest pose and 
 | `hidden` | Bare ground in shadow |
 | `frozen` (any status) | Dimmed to 55% |
 
+## Resistance and events
+
+Each `WorldView.resistance` entry gets a marker just outside the 101 ring, centred on its target
+area's slice, sized and lit by strength (1..5). When `attackingGoalId` resolves to a cell, a dashed
+line marches from the marker to that cell. Tapping a marker reports `{ kind: "area", area, level: 1 }`
+for its target area until `SceneTarget` has a Resistance kind.
+
+| Event | What the scene does |
+| --- | --- |
+| `at_risk` | Strong red pulse on the cell |
+| `risk_cleared` | Calm pale flash on the cell |
+| `ground_lost` | The cell darkens and shakes; small camera shake |
+| `locked_in` | Athlete celebrates; the cell flashes its area colour |
+| `level_up` | Athlete celebrates; gold band rises from the new level's ring; that ring's cells flash gold |
+| `level_lost` | Small flinch. The walk back down comes from the next `update` |
+| `resistance_changed`, `setback` | The marker flares |
+| `recovery_started` | Cool flash. The light stays cooler while `inRecovery` is true |
+
+The athlete walks to the edge of the current level's ring in the Body slice whenever `level`
+changes. Per-cell effects need the goal id on each cell: the scene reads `goalId` from a cell when
+present (proposed contract change) and otherwise skips the cell effect.
+
 ## Not yet
 
-Resistance markers and attack lines, HTML labels, and a kit API (the contract has no kit field yet).
+HTML labels, and a kit API (the contract has no kit field yet).
 Tapping the plain beyond the mountain reports `{ kind: "home" }`.

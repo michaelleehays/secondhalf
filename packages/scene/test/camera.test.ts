@@ -33,3 +33,22 @@ describe("CameraRig", () => {
     expect(cam.position.distanceTo(shotFor({ kind: "vision" }, ctx).pos)).toBeLessThan(1e-6);
   });
 });
+
+describe("area shot", () => {
+  it("frames the area's Resistance marker on desktop and phone", async () => {
+    const { AREAS } = await import("@second-half/contracts");
+    const { resistanceSpot } = await import("../src/layout");
+    for (const aspect of [16 / 9, 390 / 664]) {
+      const cam = new THREE.PerspectiveCamera(42, aspect, 0.1, 200);
+      for (const area of AREAS) {
+        const s = shotFor({ kind: "area", area }, { ...ctx, aspect });
+        cam.position.copy(s.pos);
+        cam.lookAt(s.look);
+        cam.updateMatrixWorld();
+        const p = new THREE.Vector3(...resistanceSpot(area)).add(new THREE.Vector3(0, 2.2, 0)).project(cam);
+        expect(Math.abs(p.x)).toBeLessThan(0.9);
+        expect(Math.abs(p.y)).toBeLessThan(0.9);
+      }
+    }
+  });
+});

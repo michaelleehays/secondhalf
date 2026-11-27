@@ -62,6 +62,10 @@ export interface PoseInput {
   hit: number;
   /** 0..1 progress through a celebration, or 0 when none is playing. */
   celebrate: number;
+  /** 0 standing still .. 1 walking. Optional, default 0. */
+  walk?: number;
+  /** Walk cycle phase in radians; one stride per 2π. */
+  walkPhase?: number;
 }
 
 /** Rest is an A-pose: drop the arms to the sides and keep a slight bend at the elbow. */
@@ -165,6 +169,21 @@ export function poseAt(input: PoseInput, out: Pose = emptyPose()): Pose {
     const raise = smooth(c / 0.2) * (1 - smooth((c - 0.75) / 0.25));
     add(out, ARMS_UP, raise * up);
     out.lift += Math.max(0, Math.sin(c * Math.PI * 4)) * 0.12 * raise * up;
+  }
+
+  // Walk cycle: legs swing in opposition, knees fold on the back swing, arms counter-swing.
+  const walk = clamp01(input.walk ?? 0) * up;
+  if (walk > 0) {
+    const ph = input.walkPhase ?? 0;
+    const sw = Math.sin(ph);
+    addTo(out.bones.LeftUpLeg, 0.45 * sw * walk, 0, 0);
+    addTo(out.bones.RightUpLeg, -0.45 * sw * walk, 0, 0);
+    addTo(out.bones.LeftLeg, -0.6 * Math.max(0, -sw) * walk, 0, 0);
+    addTo(out.bones.RightLeg, -0.6 * Math.max(0, sw) * walk, 0, 0);
+    addTo(out.bones.LeftArm, -0.35 * sw * walk, 0, 0);
+    addTo(out.bones.RightArm, 0.35 * sw * walk, 0, 0);
+    addTo(out.bones.Spine1, 0.04 * walk, 0.06 * sw * walk, 0);
+    addTo(out.hips, 0, 0.025 * Math.abs(Math.cos(ph)) * walk - 0.02 * walk, 0);
   }
 
   // Breathing idle: a slow chest rise and a little sway, gone when down.
