@@ -5,7 +5,10 @@
  * (Lambert) shading, and drops the rim and point lights and the contact shadow. "auto" starts high and drops to low once, if the first
  * frames run under the target frame rate.
  */
-export type Quality = "auto" | "high" | "low";
+import type { CreateScene } from "@second-half/contracts";
+
+/** The contract's quality option. */
+export type Quality = NonNullable<Parameters<CreateScene>[1]["quality"]>;
 export type QualityLevel = Exclude<Quality, "auto">;
 
 export interface QualitySettings {
