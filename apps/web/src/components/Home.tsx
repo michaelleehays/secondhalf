@@ -213,16 +213,25 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
     [adapter],
   );
 
-  // The athlete sheet leaves room for the athlete: tell the scene what the sheet covers, then frame him.
-  const athleteOpen = sheet?.kind === "athlete";
+  // A detail sheet leaves room for what it's about: tell the scene what the sheet covers, then frame the
+  // subject (the athlete, an area, the summit or a Resistance marker) in the space left over.
+  const sceneTarget: SceneTarget | null =
+    sheet?.kind === "area"
+      ? { kind: "area", area: sheet.area }
+      : sheet?.kind === "athlete" || sheet?.kind === "vision"
+        ? { kind: sheet.kind }
+        : sheet?.kind === "resistance"
+          ? { kind: "resistance", id: sheet.id }
+          : null;
+  const targetKey = sceneTarget ? JSON.stringify(sceneTarget) : "";
   useEffect(() => {
-    const s = scene.current;
-    if (!athleteOpen) {
-      s?.setInsets?.({ top: 0, right: 0, bottom: 0, left: 0 });
+    if (!targetKey) {
+      scene.current?.setInsets?.({ top: 0, right: 0, bottom: 0, left: 0 });
       return;
     }
+    const target = JSON.parse(targetKey) as SceneTarget;
+    const panel = document.querySelector<HTMLElement>("section.sheet.side");
     const frame = () => {
-      const panel = document.querySelector<HTMLElement>("section.sheet.side");
       const hud = document.querySelector<HTMLElement>("header.hud");
       if (!panel) return;
       const wide = matchMedia(SIDE_SHEET_QUERY).matches;
@@ -232,15 +241,19 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
         bottom: wide ? 0 : panel.offsetHeight,
         left: 0,
       });
-      scene.current?.focus({ kind: "athlete" });
+      scene.current?.focus(target);
     };
     const raf = requestAnimationFrame(frame);
+    // Re-frame when the sheet changes detent or the window resizes.
+    const ro = typeof ResizeObserver === "function" && panel ? new ResizeObserver(frame) : null;
+    if (panel) ro?.observe(panel);
     window.addEventListener("resize", frame);
     return () => {
       cancelAnimationFrame(raf);
+      ro?.disconnect();
       window.removeEventListener("resize", frame);
     };
-  }, [athleteOpen]);
+  }, [targetKey]);
 
   const canEdit = useMemo(() => (state ? adapter.canEditPlan(state) : false), [adapter, state]);
 
@@ -367,7 +380,7 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
           open={!!sheet && sheet.kind !== "checkin"}
           title={detail ? sheetTitle(detail, state) : "Details"}
           onClose={closeSheet}
-          {...(detail?.kind === "athlete" ? { variant: "side" as const } : {})}
+          variant="side"
         >
           {detail?.kind === "area" ? (
             <AreaSheetBody
