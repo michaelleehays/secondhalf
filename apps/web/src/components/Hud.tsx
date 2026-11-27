@@ -3,7 +3,7 @@ import { AREAS, type AreaId } from "@second-half/contracts";
 import type { HudModel } from "@/lib/hud";
 import { AREA_META, fmt } from "@/lib/labels";
 
-export type HudTarget = { kind: "athlete" } | { kind: "vision" } | { kind: "area"; area: AreaId };
+export type HudTarget = { kind: "athlete" } | { kind: "vision" } | { kind: "levels" } | { kind: "area"; area: AreaId };
 
 /**
  * Top-of-screen readout over the scene: level, score, credits, life clock, health, strength and
@@ -13,15 +13,17 @@ export type HudTarget = { kind: "athlete" } | { kind: "vision" } | { kind: "area
 export function Hud({ hud, actions, onOpen }: { hud: HudModel; actions?: ReactNode; onOpen: (t: HudTarget) => void }) {
   return (
     <header className="hud">
-      <nav className="skip" aria-label="Areas">
+      <nav className="skip" aria-label="Map">
         {AREAS.map((a) => (
           <button key={a} onClick={() => onOpen({ kind: "area", area: a })}>
             {AREA_META[a].name}
           </button>
         ))}
+        <button onClick={() => onOpen({ kind: "athlete" })}>Athlete</button>
+        <button onClick={() => onOpen({ kind: "vision" })}>Vision</button>
       </nav>
       <div className="hrow">
-        <button className="lvl" onClick={() => onOpen({ kind: "vision" })} aria-label={`Level ${hud.levelCode}, ${hud.levelName}. Open the Vision`}>
+        <button className="lvl" onClick={() => onOpen({ kind: "levels" })} aria-label={`Level ${hud.levelCode}, ${hud.levelName}. Open your levels`}>
           <b>{hud.levelCode}</b>
           <span>{hud.levelName}</span>
         </button>

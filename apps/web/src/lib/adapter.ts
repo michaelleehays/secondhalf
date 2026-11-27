@@ -5,6 +5,7 @@ import {
   type GameEvent,
   type GameState,
   type IsoDate,
+  type PlanEdit,
   type RulesConfig,
   type WorldView,
 } from "@second-half/contracts";
@@ -19,6 +20,17 @@ export interface GameStep {
   game: SavedGame;
   events: GameEvent[];
 }
+
+/** Thrown when the engine doesn't support an action yet (its method is still a stub). */
+export class ComingSoonError extends Error {
+  constructor(readonly action: string) {
+    super(`${action} is coming soon`);
+    this.name = "ComingSoonError";
+  }
+}
+
+/** The engine's stubs throw "... is not implemented yet ..."; anything else is a real failure. */
+const isStub = (err: unknown) => err instanceof Error && /not implemented/i.test(err.message);
 
 /**
  * Everything the screens need from the game. Today the real engine runs in the browser and the
@@ -35,6 +47,12 @@ export interface GameAdapter {
   nextDay(game: SavedGame): Promise<SavedGame>;
   startLifeEvent(game: SavedGame): Promise<GameStep>;
   equipGamePlan(game: SavedGame, gamePlanId: string, equipped: boolean): Promise<GameStep>;
+  /** The player confirms a real achievement for a milestone goal. */
+  verifyAchievement(game: SavedGame, goalId: string, note?: string): Promise<GameStep>;
+  /** One edit to the player's levels, goals or habits. Rejects with ComingSoonError while the engine can't apply edits. */
+  applyPlanEdit(game: SavedGame, edit: PlanEdit): Promise<GameStep>;
+  /** False while the engine can't apply plan edits yet. */
+  canEditPlan(state: GameState): boolean;
   /** Back to the sample player. */
   reset(today: IsoDate): Promise<SavedGame>;
   toWorldView(state: GameState): WorldView;
@@ -93,6 +111,28 @@ export function createLocalAdapter(options: LocalAdapterOptions = {}): GameAdapt
     },
     async equipGamePlan(game, gamePlanId, equipped) {
       return step(game, engine.equipGamePlan(game.state, gamePlanId, equipped));
+    },
+    async verifyAchievement(game, goalId, note) {
+      return step(game, engine.verifyAchievement(game.state, goalId, game.date, note));
+    },
+    async applyPlanEdit(game, edit) {
+      let result: { state: GameState; events: GameEvent[] };
+      try {
+        result = engine.applyPlanEdit(game.state, edit, game.date);
+      } catch (err) {
+        if (isStub(err)) throw new ComingSoonError("Editing your plan");
+        throw err;
+      }
+      return step(game, result);
+    },
+    canEditPlan(state) {
+      // A harmless edit (renaming the current level to its own name) tells us whether the engine supports edits.
+      try {
+        engine.applyPlanEdit(state, { kind: "rename_level", level: state.level, name: state.levelNames?.[state.level] ?? "" }, state.today);
+        return true;
+      } catch (err) {
+        return !isStub(err);
+      }
     },
     async reset(today) {
       clearSaved(store);
