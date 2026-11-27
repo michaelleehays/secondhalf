@@ -8,11 +8,13 @@ import { goalStatusText } from "@/lib/coach";
 import type { RulesConfig } from "@second-half/contracts";
 
 /** What happened to an edit, for the form that sent it. */
-export type EditOutcome = { status: "applied" } | { status: "unchanged" } | { status: "rejected"; reason: string } | { status: "coming_soon" } | { status: "failed" };
+export type EditOutcome = { status: "saving" } | { status: "applied" } | { status: "unchanged" } | { status: "rejected"; reason: string } | { status: "coming_soon" } | { status: "failed" };
 
 export const outcomeText = (o: EditOutcome | null): { text: string; tone: "ok" | "bad" | "muted" } | null => {
   if (!o) return null;
   switch (o.status) {
+    case "saving":
+      return { text: "Saving…", tone: "muted" };
     case "applied":
       return { text: "Saved.", tone: "ok" };
     case "unchanged":
@@ -114,6 +116,7 @@ function VisionField({ vision, save }: { vision: string; save: (text: string) =>
         e.preventDefault();
         if (!changed) return setOutcome({ status: "unchanged" });
         setBusy(true);
+        setOutcome({ status: "saving" });
         setOutcome(await save(value));
         setBusy(false);
       }}
@@ -168,6 +171,7 @@ function LevelName({
     const r = renameLevelEdit(state, level, value);
     if (!r.ok) return setOutcome({ status: "rejected", reason: r.error });
     setBusy(true);
+    setOutcome({ status: "saving" });
     setOutcome(await apply(r.value));
     setBusy(false);
   };

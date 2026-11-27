@@ -27,6 +27,13 @@ const isStale = (err: unknown) => typeof err === "object" && err !== null && (er
  * latest game is loaded, and a StaleGameError hands it to the UI. The weekly rollover runs on the
  * server, so there are no demo controls here.
  */
+/**
+ * Loads already in flight, by api client and user. Opening the app can ask for the game twice at once
+ * (a remount, or an auth event); they share one request, so a new player's game is created once.
+ * Another tab has its own client, and is covered by the stale check when it creates.
+ */
+const inflight = new WeakMap<GameApi, Map<string, Promise<{ game: SavedGame; version: number }>>>();
+
 export function createRemoteAdapter(opts: RemoteAdapterOptions): GameAdapter {
   const rules = opts.rules ?? DEFAULT_RULES;
   const engine = opts.engine ?? createEngine(rules);
@@ -61,16 +68,37 @@ export function createRemoteAdapter(opts: RemoteAdapterOptions): GameAdapter {
     rules,
     mode: "remote",
     async load(today) {
-      const loaded = await api.loadVersioned(userId);
-      if (loaded) {
-        version = loaded.version;
-        return toGame(loaded.state, today);
+      let byUser = inflight.get(api);
+      if (!byUser) inflight.set(api, (byUser = new Map()));
+      let pending = byUser.get(userId);
+      if (!pending) {
+        pending = (async () => {
+          const loaded = await api.loadVersioned(userId);
+          if (loaded) return { game: toGame(loaded.state, today), version: loaded.version };
+          // First visit: start a new game and save it as version 1. If another tab or device created it
+          // first, that save is refused as stale: use the game that exists instead.
+          const state = newPlayerState({ userId, today, timezone: opts.timezone, rules });
+          try {
+            const v = await api.saveStepResult(userId, { state, events: [] }, { expectedVersion: 0 });
+            return { game: toGame(state, today), version: v };
+          } catch (err) {
+            if (!isStale(err)) throw err;
+            const existing = await api.loadVersioned(userId);
+            if (!existing) throw err;
+            return { game: toGame(existing.state, today), version: existing.version };
+          }
+        })().finally(() => byUser.delete(userId));
+        byUser.set(userId, pending);
       }
-      // First visit: start a new game and save it, so the next load finds it.
-      const state = newPlayerState({ userId, today, timezone: opts.timezone, rules });
-      version = 0;
-      const created = await commit(toGame(state, today), { state, events: [] });
-      return created.game;
+      const { game, version: v } = await pending;
+      version = v;
+      return game;
+    },
+    async refresh(game) {
+      const loaded = await api.loadVersioned(userId);
+      if (!loaded || loaded.version === version) return null;
+      version = loaded.version;
+      return toGame(loaded.state, game.date);
     },
     async closeDay(game, checkIn) {
       return commit(game, engine.closeDay(game.state, checkIn), { closedOn: checkIn.date });

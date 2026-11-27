@@ -58,13 +58,22 @@ export function Home({ adapter: given, account }: { adapter?: GameAdapter; accou
   /** The control that opened the sheet, so focus can go back to it when the sheet closes. */
   const opener = useRef<HTMLElement | null>(null);
 
+  const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   useEffect(() => {
     let live = true;
-    adapter.load(localIsoDate(new Date())).then((g) => live && setGame(g));
+    setLoadError(false);
+    adapter
+      .load(localIsoDate(new Date()))
+      .then((g) => live && setGame(g))
+      .catch((err) => {
+        console.error(err);
+        if (live) setLoadError(true);
+      });
     return () => {
       live = false;
     };
-  }, [adapter]);
+  }, [adapter, loadAttempt]);
 
   const state = game?.state ?? null;
   const view = useMemo(() => (state ? adapter.toWorldView(state) : null), [adapter, state]);
@@ -266,6 +275,26 @@ export function Home({ adapter: given, account }: { adapter?: GameAdapter; accou
 
   const canEdit = useMemo(() => (state ? adapter.canEditPlan(state) : false), [adapter, state]);
 
+  // Coming back to the tab: pick up anything saved from another tab or device, so the next save isn't refused as stale.
+  useEffect(() => {
+    if (!adapter.refresh) return;
+    const onVisible = () => {
+      const g = gameRef.current;
+      if (document.visibilityState !== "visible" || !g) return;
+      adapter
+        .refresh?.(g)
+        .then((latest) => {
+          if (!latest) return;
+          gameRef.current = latest;
+          setGame(latest);
+          pushToast({ title: "Coach", body: "Updated with what you saved on another device.", kind: "info" });
+        })
+        .catch((err) => console.error(err));
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [adapter, pushToast]);
+
   const closed = !!game && game.closedOn === game.date;
 
   const closeDay = async () => {
@@ -434,7 +463,20 @@ export function Home({ adapter: given, account }: { adapter?: GameAdapter; accou
         </Sheet>
       ) : null}
       <Toasts items={toasts} />
-      {!state ? <div className="loading">Loading your game…</div> : null}
+      {!state ? (
+        loadError ? (
+          <div className="loading" role="alert">
+            <div className="load-error">
+              <p>Your game didn&apos;t load. Check your connection and try again.</p>
+              <button className="btn primary" onClick={() => setLoadAttempt((n) => n + 1)}>
+                Try again
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="loading">Loading your game…</div>
+        )
+      ) : null}
     </main>
   );
 }
