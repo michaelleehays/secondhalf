@@ -10,6 +10,7 @@ import {
   type RulesConfig,
   type StepResult,
 } from "@second-half/contracts";
+import { withJournal } from "./journal";
 import { withKnockedDown } from "./character";
 import { appendHistory } from "./history";
 
@@ -54,7 +55,7 @@ export function withAutoRecovery(result: StepResult, date: IsoDate, config: Rule
  * A life event (illness, family emergency, heavy travel) the player logs. Starts Recovery once per season.
  * Does nothing, with no events, if Recovery is already on or this season's life-event pause is used.
  */
-export function startLifeEvent(state: GameState, date: IsoDate, _config: RulesConfig = DEFAULT_RULES): StepResult {
+function startLifeEventStep(state: GameState, date: IsoDate, _config: RulesConfig = DEFAULT_RULES): StepResult {
   if (state.recovery || state.season.lifeEventPauseUsed) return { state, events: [] };
   return begin(state, "life_event", date);
 }
@@ -125,4 +126,9 @@ export function recoveryDay(state: GameState, checkIn: CheckIn, config: RulesCon
     state: { ...state, today: date, score, credits, habits, weekProgress, recovery: next, character: withKnockedDown({ ...state.character, health }, knockedDown) },
     events,
   };
+}
+
+/** startLifeEvent with the step's notable moments added to `state.journal`. */
+export function startLifeEvent(state: GameState, date: IsoDate, config: RulesConfig = DEFAULT_RULES): StepResult {
+  return withJournal(state, startLifeEventStep(state, date, config), date, config);
 }
