@@ -46,6 +46,8 @@ export interface Goal {
   lockedInOn?: IsoDate;
   /** Milestone goals only: date of the last passed quarterly check. */
   lastQuarterlyCheck?: IsoDate;
+  /** Milestone goals only: when a real achievement verified the goal (it locks in then). */
+  verifiedOn?: IsoDate;
 }
 
 export interface ProgramWeek {
@@ -253,6 +255,10 @@ export type GameEvent =
   | { type: "recovery_started"; cause: RecoveryState["cause"] }
   | { type: "recovery_ended"; completed: boolean }
   | { type: "knocked_down" }
+  /** A milestone goal reached rules.progress.milestoneVerifyAt and is waiting for a real achievement. */
+  | { type: "ready_to_verify"; goalId: string }
+  /** A real achievement was confirmed for a milestone goal. */
+  | { type: "verified"; goalId: string; note?: string }
   /** Equipping would pass rules.resistance.maxEquippedPlans; state unchanged. */
   | { type: "game_plan_refused"; gamePlanId: string; max: number }
   /** More weekly maintenance habits than rules.maintenance.maxWeeklyHabits; the UI offers merge, convert or retire. */
@@ -280,6 +286,12 @@ export interface Engine {
   quarterlyCheck(state: GameState, goalId: string, passed: boolean, date: IsoDate): StepResult;
   /** Sunday review completed: pays points.weeklyReview and credits.weeklyReview once per Monday–Sunday week. */
   closeReview(state: GameState, date: IsoDate): StepResult;
+  /**
+   * The player confirms a real achievement for a milestone goal (ran the 5K, the fund reached $5,000).
+   * At or above rules.progress.milestoneVerifyAt the goal locks in with its bonus; below it, the achievement
+   * is recorded (verifiedOn) and the goal locks in as soon as consistency carries it to that point.
+   */
+  verifyAchievement(state: GameState, goalId: string, date: IsoDate, note?: string): StepResult;
   /** Projected final score at endAge at the current pace. */
   projectedFinalScore(state: GameState): number;
   /** What the 3D scene needs to draw. */
