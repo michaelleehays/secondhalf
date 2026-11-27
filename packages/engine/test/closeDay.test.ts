@@ -67,9 +67,10 @@ describe("closeDay", () => {
 
   it("done habits build strength: full and minimum gain their own amounts", () => {
     const { state, events } = day(SAMPLE_STATE, full("run"), minimum("meditate"));
-    const gain = R.strength.fullGain + R.strength.minimumGain;
-    expect(state.character.strength).toBe(SAMPLE_STATE.character.strength + gain);
-    expect(events).toContainEqual({ type: "strength_changed", delta: gain });
+    const start = SAMPLE_STATE.character.strength;
+    const delta = R.strength.fullGain + R.strength.minimumGain - start * R.strength.dailyDecay;
+    expect(state.character.strength).toBeCloseTo(start + delta);
+    expect(events).toContainEqual({ type: "strength_changed", delta: expect.closeTo(delta) });
   });
 
   it("health changes are summed and clamped once, so entry order does not matter", () => {
@@ -103,7 +104,8 @@ describe("closeDay", () => {
     const config = { ...R, strength: { ...R.strength, missCost: 2 } };
     const start = withCharacter({ graceDaysLeft: 1 });
     const { state } = closeDay(start, { date: DATE, entries: [missed("run"), missed("meditate")] }, config);
-    expect(state.character.strength).toBe(SAMPLE_STATE.character.strength - 2);
+    const s0 = SAMPLE_STATE.character.strength;
+    expect(state.character.strength).toBeCloseTo(s0 - 2 - s0 * R.strength.dailyDecay);
   });
 
   it("strength dailyDecay: each night strength loses strength.dailyDecay of itself, so it settles where gains meet decay", () => {
@@ -115,7 +117,10 @@ describe("closeDay", () => {
   });
 
   it("health and strength stay within 0 and their max", () => {
-    const top = day(withCharacter({ health: R.health.max, strength: R.strength.max }), full("run")).state.character;
+    // Decay off, so a full habit at max strength would push past it.
+    const noDecay = { ...R, strength: { ...R.strength, dailyDecay: 0 } };
+    const start = withCharacter({ health: R.health.max, strength: R.strength.max });
+    const top = closeDay(start, { date: DATE, entries: [full("run")] }, noDecay).state.character;
     expect(top.health).toBe(R.health.max);
     expect(top.strength).toBe(R.strength.max);
     const bottom = day(withCharacter({ health: 2, graceDaysLeft: 0 }), missed("run")).state.character;
@@ -247,7 +252,9 @@ describe("closeDay", () => {
 
   it("entries for unknown habits are ignored", () => {
     const { state, events } = day(SAMPLE_STATE, full("not-a-habit"));
-    expect(events).toEqual([]);
+    // Only the nightly strength decay happens.
+    expect(events.filter((e) => e.type !== "strength_changed")).toEqual([]);
+    expect(state.habits).toEqual(SAMPLE_STATE.habits);
     expect(state.score).toBe(SAMPLE_STATE.score);
   });
 

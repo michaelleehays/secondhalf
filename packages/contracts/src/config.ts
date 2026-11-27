@@ -129,7 +129,7 @@ export const DEFAULT_RULES: RulesConfig = {
     getUpAfterPlays: 3,
     getUpHealth: 30,
   },
-  strength: { max: 100, missCost: 0, dailyDecay: 0, idleWeekCost: 3, fullGain: 1, minimumGain: 0.5 },
+  strength: { max: 100, missCost: 0, dailyDecay: 0.018, idleWeekCost: 3, fullGain: 0.4, minimumGain: 0.3 },
   grace: { perMonth: 2, maxHeld: 4 },
   resistance: { max: 5, setbackAt: 5, afterSetback: 3, gamePlanDamageFactor: 0.5, maxEquippedPlans: 3 },
   risk: { missesToTrigger: 3, patternDays: 7, onTrigger: 25, setbackPressure: 10, perBadWeek: 25, fullCleanDay: 20, minimumCleanDay: 10, lostRestartProgress: 0.5 },
