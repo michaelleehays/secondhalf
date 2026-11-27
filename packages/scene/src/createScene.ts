@@ -14,14 +14,8 @@ import { Walker } from "./walker";
 
 type Selection = SceneTarget & { level?: Level };
 
-/**
- * createScene options. `quality` is a scene-package extension of the contract's options
- * (default "auto"); see quality.ts.
- */
-export interface SceneOptions {
-  assetsBaseUrl: string;
-  quality?: Quality;
-}
+/** createScene options, from the contract: `assetsBaseUrl` and optional `quality` (default "auto"). */
+export type SceneOptions = Parameters<CreateScene>[1];
 
 /** Pointer travel (px) beyond which a press counts as a drag, not a tap. */
 const DRAG_PX = 6;
@@ -38,7 +32,7 @@ const YAW_PER_PX = 0.004;
  *
  * Rendering pauses while the tab is hidden or the container is scrolled out of view.
  */
-export const createScene = async (container: HTMLElement, options: SceneOptions): Promise<SceneHandle> => {
+export const createScene: CreateScene = async (container, options) => {
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const phone = matchMedia("(pointer: coarse)").matches;
   const requested: Quality = options.quality ?? "auto";
@@ -442,9 +436,6 @@ export const createScene = async (container: HTMLElement, options: SceneOptions)
   return handle;
 };
 
-// The scene still satisfies the contract's CreateScene; `quality` is an optional extra.
-const _contract: CreateScene = createScene;
-void _contract;
 
 
 
