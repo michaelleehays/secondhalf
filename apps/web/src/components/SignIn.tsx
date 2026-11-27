@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { DEFAULT_RULES } from "@second-half/contracts";
-import { START_AGE } from "@/lib/newPlayer";
 
 export type SendLink = (email: string) => Promise<{ error: string | null }>;
 
@@ -29,7 +28,7 @@ export function SignIn({ sendLink, onTryDemo, notice }: { sendLink: SendLink; on
       <div className="signin-card">
         <h1>Second Half</h1>
         <p className="muted">
-          You&apos;re {START_AGE}. The game ends at {DEFAULT_RULES.life.defaultEndAge}. Lock in goals across Body, Mind, Work, People and Money.
+          You&apos;re {DEFAULT_RULES.life.startAge}. The game ends at {DEFAULT_RULES.life.defaultEndAge}. Lock in goals across Body, Mind, Work, People and Money.
         </p>
         {sentTo ? (
           <div className="coach" role="status">
