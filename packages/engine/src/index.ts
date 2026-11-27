@@ -29,6 +29,12 @@ export function createEngine(config: RulesConfig = DEFAULT_RULES): Engine {
     startLifeEvent: (state, date) => startLifeEvent(state, date, config),
     equipGamePlan: (state, gamePlanId, equipped) => equipGamePlan(state, gamePlanId, equipped, config),
     closeReview: (state, date) => closeReview(state, date, config),
+    verifyAchievement: () => {
+      throw new Error("engine.verifyAchievement is not implemented yet (workstream A)");
+    },
+    applyPlanEdit: () => {
+      throw new Error("engine.applyPlanEdit is not implemented yet (workstream A)");
+    },
     quarterlyCheck: (state, goalId, passed, date) => quarterlyCheck(state, goalId, passed, date, config),
     projectedFinalScore: (state) => projectedFinalScore(state, config),
     toWorldView,
