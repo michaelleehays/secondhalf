@@ -30,6 +30,7 @@ select public.save_step_result('00000000-0000-4000-8000-000000000042', '{
   "today": "2026-11-26",
   "timezone": "America/New_York",
   "level": 2,
+  "bestLevel": 2,
   "score": 61840,
   "credits": 1240,
   "modes": {

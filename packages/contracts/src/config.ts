@@ -40,6 +40,10 @@ export interface RulesConfig {
   };
   strength: {
     max: number;
+    /** Strength lost per miss that grace doesn't cover. 0 = off. */
+    missCost: number;
+    /** Share of current strength lost each night, so strength settles where gains and decay meet. 0 = off. */
+    dailyDecay: number;
     idleWeekCost: number;
     fullGain: number;
     minimumGain: number;
@@ -98,6 +102,7 @@ export interface RulesConfig {
   adaptation: { ruleWeeks: number };
   program: { defaultThreshold: number };
   life: { defaultEndAge: number };
+  season: { weeks: number };
 }
 
 export const DEFAULT_RULES: RulesConfig = {
@@ -124,7 +129,7 @@ export const DEFAULT_RULES: RulesConfig = {
     getUpAfterPlays: 3,
     getUpHealth: 30,
   },
-  strength: { max: 100, idleWeekCost: 3, fullGain: 1, minimumGain: 0.5 },
+  strength: { max: 100, missCost: 0, dailyDecay: 0, idleWeekCost: 3, fullGain: 1, minimumGain: 0.5 },
   grace: { perMonth: 2, maxHeld: 4 },
   resistance: { max: 5, setbackAt: 5, afterSetback: 3, gamePlanDamageFactor: 0.5, maxEquippedPlans: 3 },
   risk: { missesToTrigger: 3, patternDays: 7, onTrigger: 25, setbackPressure: 10, perBadWeek: 25, fullCleanDay: 20, minimumCleanDay: 10, lostRestartProgress: 0.5 },
@@ -143,4 +148,5 @@ export const DEFAULT_RULES: RulesConfig = {
   adaptation: { ruleWeeks: 2 },
   program: { defaultThreshold: 3 },
   life: { defaultEndAge: 84 },
+  season: { weeks: 12 },
 };
