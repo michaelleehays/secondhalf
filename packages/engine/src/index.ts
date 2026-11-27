@@ -5,6 +5,9 @@ import {
   type RulesConfig,
   type WorldView,
 } from "@second-half/contracts";
+import { closeDay } from "./closeDay";
+
+export { closeDay, type HabitWithLastResult } from "./closeDay";
 
 /**
  * Game engine. Workstream A implements closeDay, closeWeek, startLifeEvent and equipGamePlan
@@ -17,7 +20,7 @@ export function createEngine(config: RulesConfig = DEFAULT_RULES): Engine {
   };
 
   return {
-    closeDay: notYet("closeDay"),
+    closeDay: (state, checkIn) => closeDay(state, checkIn, config),
     closeWeek: notYet("closeWeek"),
     startLifeEvent: notYet("startLifeEvent"),
     equipGamePlan: notYet("equipGamePlan"),
