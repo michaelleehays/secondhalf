@@ -74,10 +74,6 @@ export interface RulesConfig {
   levels: { goalsToClear: number };
   progress: {
     idleWeekDecay: number;
-    /** @deprecated Per-check-in progress; replaced by consistent weeks (see below). Removed once the engine switches. */
-    perFull: number;
-    /** @deprecated See perFull. */
-    perMinimum: number;
     /**
      * A week is "consistent" for a goal when its habits reach this share of their weekly targets
      * (a minimum check-in counts as `minimumWeight` of a full one).
@@ -134,10 +130,10 @@ export const DEFAULT_RULES: RulesConfig = {
   resistance: { max: 5, setbackAt: 5, afterSetback: 3, gamePlanDamageFactor: 0.5, maxEquippedPlans: 3 },
   risk: { missesToTrigger: 3, patternDays: 7, onTrigger: 25, setbackPressure: 10, perBadWeek: 25, fullCleanDay: 20, minimumCleanDay: 10, lostRestartProgress: 0.5 },
   levels: { goalsToClear: 4 },
-  progress: { idleWeekDecay: 0.08, perFull: 0.07,
-    perMinimum: 0.03,
+  progress: {
+    idleWeekDecay: 0.08,
     setbackLoss: 0.05,
-    consistentWeekShare: 0.8,
+    consistentWeekShare: 0.7,
     minimumWeight: 0.5,
     weeksToLockIn: { 1: 12, 2: 18, 3: 27, 4: 40 },
     milestoneVerifyAt: 0.8,

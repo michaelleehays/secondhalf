@@ -203,13 +203,11 @@ describe("closeDay", () => {
     expect(state.habits.find((h) => h.id === "run")!.history).toEqual([recent, { date: DATE, result: "full" }]);
   });
 
-  it("goal progress: full and minimum check-ins move the habit's goal by perFull and perMinimum", () => {
-    // run -> body-201 (in progress, 0.4); deep-work -> work-201 (open, 0).
+  it("goals don't move per check-in: progress comes from consistent weeks at the weekly rollover", () => {
     const { state, events } = day(SAMPLE_STATE, full("run"), minimum("deep-work"));
-    expect(goal(state, "body-201").progress).toBeCloseTo(0.4 + R.progress.perFull);
-    expect(goal(state, "work-201").progress).toBeCloseTo(R.progress.perMinimum);
-    expect(goal(state, "work-201").status).toBe("in_progress");
-    expect(events).toContainEqual({ type: "progress", goalId: "body-201", from: 0.4, to: goal(state, "body-201").progress });
+    expect(goal(state, "body-201").progress).toBe(0.4);
+    expect(goal(state, "work-201").progress).toBe(0);
+    expect(events.some((e) => e.type === "progress" || e.type === "locked_in")).toBe(false);
   });
 
   it("goal progress: misses, locked-in goals, frozen goals and goals with a program do not move", () => {
@@ -223,25 +221,6 @@ describe("closeDay", () => {
     // meditate -> mind-101, already locked in.
     const { events } = day(SAMPLE_STATE, full("meditate"), missed("run"));
     expect(events.some((e) => e.type === "progress")).toBe(false);
-  });
-
-  it("locked in: a goal reaching full progress locks in and pays goalLockedInPerLevel x level, with the level multiplier", () => {
-    // reach-out -> people-101 (level 1).
-    const start = withGoal(SAMPLE_STATE, "people-101", { progress: 1 - R.progress.perMinimum });
-    const { state, events } = day(start, minimum("reach-out"));
-    const g = goal(state, "people-101");
-    expect(g.status).toBe("locked_in");
-    expect(g.progress).toBe(1);
-    expect(g.lockedInOn).toBe(DATE);
-    const bonus = Math.round(R.points.goalLockedInPerLevel * 1 * mult);
-    expect(events).toContainEqual({ type: "locked_in", goalId: "people-101" });
-    expect(events).toContainEqual({ type: "points", score: bonus, credits: R.credits.goalLockedInPerLevel * 1, reason: "goal_locked_in", sourceId: "people-101" });
-    expect(state.score).toBe(SAMPLE_STATE.score + 8 + bonus);
-  });
-
-  it("locked in: lost ground is won back by check-ins and locks in again at full progress", () => {
-    const start = withGoal(SAMPLE_STATE, "people-101", { status: "lost", progress: 0.99 });
-    expect(goal(day(start, full("reach-out")).state, "people-101").status).toBe("locked_in");
   });
 
   it("score is never taken away by misses", () => {

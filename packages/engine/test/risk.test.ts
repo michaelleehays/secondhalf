@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_RULES as R, type CheckInEntry, type GameState, type Goal, type HabitDay, type ResistanceId } from "@second-half/contracts";
 import { SAMPLE_STATE } from "@second-half/contracts/fixtures";
-import { closeDay, createEngine, quarterlyCheck } from "../src/index";
+import { closeDay, closeWeek, createEngine, quarterlyCheck } from "../src/index";
 
 // Sample: meditate -> mind-101 (system, locked in); no-impulse -> money-101 (milestone, at risk 60);
 // run -> body-201 (in progress 0.4); work-101 is a locked-in milestone; temptation is at 5 and targets money.
@@ -115,10 +115,12 @@ describe("At risk and lost ground", () => {
     expect(events).toContainEqual({ type: "ground_lost", goalId: "money-101" });
   });
 
-  it("lost ground is won back with check-ins from lostRestartProgress", () => {
-    const start = withGoal(SAMPLE_STATE, "mind-101", { status: "lost", progress: R.risk.lostRestartProgress, risk: 0 });
-    const { state } = day(start, full("meditate"));
-    expect(goal(state, "mind-101").progress).toBeCloseTo(R.risk.lostRestartProgress + R.progress.perFull);
+  it("lost ground is won back by consistent weeks from lostRestartProgress", () => {
+    // meditate -> mind-101 (system, Maintain target 5 a week). Seven full days is a consistent week.
+    const week = Array.from({ length: 7 }, (_, i) => ({ date: `2026-11-${23 + i}`, result: "full" as const }));
+    const start = withHistory(withGoal(SAMPLE_STATE, "mind-101", { status: "lost", progress: R.risk.lostRestartProgress, risk: 0 }), "meditate", week);
+    const { state } = closeWeek(start, "2026-11-29");
+    expect(goal(state, "mind-101").progress).toBeCloseTo(R.risk.lostRestartProgress + 1 / R.progress.weeksToLockIn[1]);
   });
 
   it("frozen goals do not move on risk", () => {

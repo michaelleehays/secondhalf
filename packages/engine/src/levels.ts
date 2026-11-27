@@ -54,6 +54,10 @@ export function checkLevels(state: GameState, config: RulesConfig = DEFAULT_RULE
     }
   }
 
+  // Ground that opened late: a hidden goal on the current level or below opens once the goal under it is held.
+  const heldBelow = (g: Goal) => goals.some((b) => b.area === g.area && b.level === g.level - 1 && held(b));
+  goals = goals.map((g): Goal => (g.status === "hidden" && g.level > 1 && g.level <= level && heldBelow(g) ? { ...g, status: "open" } : g));
+
   goals = freezeAbove(goals, level);
   const changed = level !== state.level || credits !== state.credits || goals.some((g, i) => g !== state.goals[i]);
   if (!changed) return { state, events };
