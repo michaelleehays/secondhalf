@@ -65,7 +65,7 @@ describe("day-closed messages", () => {
   it("names the Resistance and the health cost on a setback, in coach voice", () => {
     const { state, events } = mockCloseDay(SAMPLE_STATE, { date, entries: [{ habitId: "no-impulse", result: "missed", reason: "temptation" }] }, DEFAULT_RULES);
     const setback = toastsForDay(events, state, DEFAULT_RULES).find((t) => t.title === "Setback");
-    expect(setback?.body).toMatch(/^Temptation hit strength 5\. That cost you 12 health\./);
+    expect(setback?.body).toMatch(new RegExp(`^Temptation hit strength 5\\. That cost you ${DEFAULT_RULES.health.setbackDamage} health\\.`));
   });
 
   it("uses no castle or fantasy words", () => {

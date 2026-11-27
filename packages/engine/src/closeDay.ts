@@ -52,6 +52,8 @@ function movable(goal: Goal, state: GameState): boolean {
  *   to `afterSetback`, so it cannot hit every day in a row.
  * - At risk and lost ground: see `applyDayRisk`. Levels are checked last: see `checkLevels`.
  * - Rule adjustments in force change how entries count (see `RuleEffect`).
+ * - Strength: + `fullGain` / `minimumGain` per done habit, − `strength.missCost` per miss grace didn't cover,
+ *   − `strength.dailyDecay` × current strength each night, so it settles where gains and decay meet.
  * - Health and strength changes are summed and clamped once, so entry order never matters.
  * - Score is never taken away.
  *
@@ -212,7 +214,10 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
   }
 
   const startStrength = state.character.strength;
-  const endStrength = clamp(startStrength + strengthGain, 0, config.strength.max);
+  // Strength: gains, minus missCost per miss grace didn't cover, minus dailyDecay of current strength.
+  const uncovered = misses.filter((e) => !graced.has(e.habitId)).length;
+  const strengthLoss = uncovered * config.strength.missCost + startStrength * config.strength.dailyDecay;
+  const endStrength = clamp(tidy(startStrength + strengthGain - strengthLoss), 0, config.strength.max);
   if (endStrength !== startStrength) events.push({ type: "strength_changed", delta: endStrength - startStrength });
 
   // Programs: sessions toward the current week, for goals a check-in can move.

@@ -21,8 +21,6 @@ import { raiseRisk } from "./risk";
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 const tidy = (n: number) => Math.round(n * 1e9) / 1e9;
 const WEEK_DAYS = 7;
-/** Season length from the design doc (12-week season). Placeholder until RulesConfig carries it (requested). */
-const SEASON_WEEKS = 12;
 /** The Monday after `date`. */
 const mondayAfter = (date: IsoDate): IsoDate => addDays(date, 7 - ((new Date(Date.parse(date)).getUTCDay() + 6) % 7));
 
@@ -49,7 +47,7 @@ const missedBeyondGraceThisWeek = (goal: Goal, habits: Habit[], weekEnding: IsoD
  * 3. At-risk goals whose habits missed beyond grace this week: risk + `risk.perBadWeek` (100 → lost ground).
  * 4. Grace refills to `grace.perMonth` (never taking away bought days) when `weekEnding` starts a new month.
  * 5. Program weeks short of their threshold start again (not in Recovery). `weekProgress` resets, levels are checked, and `today` becomes `weekEnding`.
- * 5b. Season rollover: once the season has run 12 weeks, the next one starts the Monday after `weekEnding`
+ * 5b. Season rollover: once the season has run `season.weeks` weeks, the next one starts the Monday after `weekEnding`
  *    (index + 1, Recovery allowances back, focus carried over). No event.
  * 6. `maintenance_cap` if locked-in system goals need more than `maintenance.maxWeeklyHabits` maintenance habits.
  * 7. Recovery may start automatically (see `withAutoRecovery`).
@@ -116,9 +114,9 @@ export function closeWeek(state: GameState, weekEnding: IsoDate, config: RulesCo
     ? Math.min(config.grace.maxHeld, Math.max(state.character.graceDaysLeft, config.grace.perMonth))
     : state.character.graceDaysLeft;
 
-  // Season rollover: 12 weeks after it started, the next season begins the Monday after.
+  // Season rollover: `season.weeks` after it started, the next season begins the Monday after.
   const season =
-    daysBetween(state.season.startsOn, weekEnding) >= SEASON_WEEKS * WEEK_DAYS - 1
+    daysBetween(state.season.startsOn, weekEnding) >= config.season.weeks * WEEK_DAYS - 1
       ? { ...state.season, index: state.season.index + 1, startsOn: mondayAfter(weekEnding), autoRecoveryUsed: false, lifeEventPauseUsed: false }
       : state.season;
 
