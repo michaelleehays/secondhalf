@@ -18,7 +18,7 @@ Needs Docker and the Supabase CLI.
 ```bash
 supabase start      # local stack
 supabase db reset   # apply every migration to a fresh database
-supabase test db    # run pgTAP tests (RLS)
+supabase test db    # run pgTAP tests (RLS, saves, weekly rollover)
 supabase db lint
 npm run test:integration -w @second-half/api   # client round-trip against the local stack
 ```
@@ -49,3 +49,28 @@ If image pulls from `public.ecr.aws` are blocked on your network, pull from Dock
 - `Habit.history` comes from the `habit_history` view (security invoker, so check-in RLS applies). Filter `recent_rank <= rules.history.days`.
 - Crews are shared by design: members can see their crew and its member list. Ownership is `crews.created_by`. A user can only insert a membership row for themselves, and until invites exist only into a crew they created. Members can leave; the creator can remove people.
 - `service_role` bypasses RLS and is for server jobs only (e.g. the weekly `closeWeek` run).
+
+## Weekly rollover (closeWeek)
+
+Every Sunday at 23:00 in each player's own time zone (`profiles.timezone`), the week is closed.
+
+```
+pg_cron, hourly at :07  ->  private.invoke_close_week()  ->  pg_net POST /functions/v1/close-week
+  Edge Function close-week (service role) -> runWeeklyRollover (packages/api)
+    due_week_rollovers(now)   players whose latest local Sunday 23:00 has passed with no rollover row
+    load_game_state           per player
+    closeWeek                 engine, through the engineCloseWeek adapter
+    save_week_rollover        StepResult + week_rollovers row in one transaction
+```
+
+- **Why a function plus cron, not SQL alone:** closeWeek is engine TypeScript, so it runs in TypeScript. Postgres only decides who is due and makes each save atomic.
+- **Idempotent:** `week_rollovers` is keyed by `(user_id, week_start)`. Closing a week that is already closed fails its insert and rolls back the whole save, so reruns and concurrent runs are safe. A failed run writes no row and is retried the next hour.
+- **Only the latest week:** a player who missed several weeks gets one rollover, not a backfill.
+- **Until workstream A ships closeWeek,** the adapter reports every due player as `failed` and writes nothing. Tests use a stub.
+- **Turning it on** in a project needs two Vault secrets; until both exist the hourly job does nothing:
+  ```sql
+  select vault.create_secret('https://<project>.supabase.co/functions/v1/close-week', 'close_week_url');
+  select vault.create_secret('<service role key>', 'close_week_service_key');
+  ```
+- The function refuses any caller that does not present the service-role key, so a signed-in player cannot trigger it.
+- **Local:** `supabase functions serve` then `curl -X POST http://127.0.0.1:54321/functions/v1/close-week -H "Authorization: Bearer <service role key>"`.
