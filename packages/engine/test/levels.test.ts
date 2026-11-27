@@ -107,8 +107,9 @@ describe("Levels", () => {
   });
 
   it("bestLevel undefined counts as the current level, and is set to the highest level reached", () => {
-    expect(SAMPLE_STATE.bestLevel).toBeUndefined();
-    const up = checkLevels(lockRing2(SAMPLE_STATE, "body", "mind", "work", "money")).state;
+    const noBest: GameState = { ...SAMPLE_STATE };
+    delete noBest.bestLevel;
+    const up = checkLevels(lockRing2(noBest, "body", "mind", "work", "money")).state;
     expect(up.bestLevel).toBe(3);
     expect(up.credits).toBe(SAMPLE_STATE.credits + R.credits.levelCleared);
     // At Level 201 with bestLevel unset, retaking 201 after a drop pays nothing.
