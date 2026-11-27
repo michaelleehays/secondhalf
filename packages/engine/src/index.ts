@@ -24,6 +24,7 @@ export function createEngine(config: RulesConfig = DEFAULT_RULES): Engine {
     closeWeek: notYet("closeWeek"),
     startLifeEvent: notYet("startLifeEvent"),
     equipGamePlan: notYet("equipGamePlan"),
+    quarterlyCheck: notYet("quarterlyCheck"),
     projectedFinalScore: (state) => projectedFinalScore(state, config),
     toWorldView,
   };
