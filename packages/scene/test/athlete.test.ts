@@ -1,15 +1,7 @@
-/// <reference types="node" />
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { KIT_NODES, athleteModelUrl, createAthlete, disposeMaterial } from "../src/athlete";
-
-async function load(file: string) {
-  const buf = readFileSync(new URL(`../../../assets/models/${file}`, import.meta.url));
-  const gltf = await new GLTFLoader().parseAsync(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength), "");
-  return gltf.scene;
-}
+import { loadGlb as load, texturesOf } from "./loadGlb";
 
 const standing = { health: 72, strength: 64, build: 0.35, slump: 0, knockedDown: false };
 
@@ -147,5 +139,37 @@ describe("prepareMaterialTextures", () => {
     createAthlete(model);
     expect(skin!.map).toBe(tex);
     expect(tex.colorSpace).toBe(THREE.SRGBColorSpace);
+  });
+});
+
+describe.each(["athlete.glb", "athlete_mobile.glb"])("textures in %s", (file) => {
+  it("sets colour spaces, and disposes every texture with the athlete", async () => {
+    const model = await load(file);
+    const a = createAthlete(model);
+    const textures = texturesOf(model);
+    // Untextured models (before workstream D's skin) have no images and so no textures.
+    if (model.userData.imageCount > 0) {
+      expect(textures.length).toBeGreaterThan(0);
+      const skin = textures.filter((t) => t.material === "Skin");
+      expect(skin.find((t) => t.slot === "map")?.texture.colorSpace).toBe(THREE.SRGBColorSpace);
+      expect(skin.find((t) => t.slot === "normalMap")?.texture.colorSpace).toBe(THREE.NoColorSpace);
+    }
+    for (const { slot, texture } of textures) {
+      const color = slot === "map" || slot === "emissiveMap";
+      expect(texture.colorSpace, `${slot} of ${texture.name}`).toBe(color ? THREE.SRGBColorSpace : THREE.NoColorSpace);
+    }
+    const disposed = new Set<THREE.Texture>();
+    for (const { texture } of textures) texture.addEventListener("dispose", () => disposed.add(texture));
+    a.dispose();
+    expect(disposed.size).toBe(new Set(textures.map((t) => t.texture)).size);
+  });
+
+  it("keeps face and kit-free nodes visible: eyebrows, eyelashes and teeth when present", async () => {
+    const model = await load(file);
+    createAthlete(model);
+    for (const name of ["body", "eyes", "shorts", "eyebrows", "eyelashes", "teeth"]) {
+      const node = model.getObjectByName(name);
+      if (node) expect(node.visible, name).toBe(true);
+    }
   });
 });
