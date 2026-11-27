@@ -202,6 +202,11 @@ export interface GameState {
   /** IANA time zone, e.g. "America/New_York". The weekly rollover runs Sunday night in this zone. */
   timezone: string;
   level: Level;
+  /**
+   * Highest level ever reached. Level-clear credits pay only when a level above this is cleared.
+   * Missing means the same as `level` (older saved games).
+   */
+  bestLevel?: Level;
   score: number;
   credits: number;
   modes: Record<AreaId, AreaMode>;
