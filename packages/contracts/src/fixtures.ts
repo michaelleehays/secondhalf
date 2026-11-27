@@ -59,7 +59,6 @@ export const SAMPLE_STATE: GameState = {
   today: "2026-11-26",
   timezone: "America/New_York",
   level: 2,
-  bestLevel: 2,
   score: 61840,
   credits: 1240,
   modes: { body: "focus", work: "focus", mind: "maintain", people: "maintain", money: "maintain" },
