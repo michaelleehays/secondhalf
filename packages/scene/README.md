@@ -40,7 +40,7 @@ and the map keeps working if it fails.
 | --- | --- |
 | `athlete.build` | `soft = max(0, -build)`, `athletic = max(0, build)` on every mesh, eased |
 | `athlete.slump` | Head down, chest caved, shoulders rounded |
-| `athlete.knockedDown` | Falls onto their back, lying along the slope |
+| `athlete.knockedDown` | Falls onto their back about the pelvis, lying along the slope and tilted onto it; the athlete shot backs off to frame the whole body |
 | `play({ type: "setback" })` | Hit reaction, camera shake, red flash |
 | `play({ type: "knocked_down" })` | Hit and fall, before the next `update` arrives |
 | `play({ type: "locked_in" })`, `level_up` | Arms-up celebration with two small hops, gold flash |
