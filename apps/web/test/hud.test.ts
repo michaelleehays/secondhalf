@@ -42,3 +42,12 @@ describe("HUD model", () => {
     expect(activeHabits(SAMPLE_STATE)).toHaveLength(5);
   });
 });
+
+describe("HUD meters", () => {
+  it("carries the meter maximums from the rules", () => {
+    const rules = { ...DEFAULT_RULES, health: { ...DEFAULT_RULES.health, max: 120 } };
+    const hud = hudModel(SAMPLE_STATE, rules);
+    expect(hud.healthMax).toBe(120);
+    expect(hud.strengthMax).toBe(DEFAULT_RULES.strength.max);
+  });
+});

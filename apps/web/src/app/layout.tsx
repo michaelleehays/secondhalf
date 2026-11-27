@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Second Half",
-  description: "Your life from 42 to 84, played as a game. Lock in goals across Body, Mind, Work, People and Money.",
+  description: "Your second half, played as a game. Lock in goals across Body, Mind, Work, People and Money.",
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Second Half" },
 };
 

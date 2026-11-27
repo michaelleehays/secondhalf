@@ -10,6 +10,9 @@ export function daysLeft(state: GameState): number {
   return Math.max(0, Math.floor((end - now) / DAY_MS));
 }
 
+/** Health below this shows the meter in the warning color. A display choice, not a game rule. */
+export const HEALTH_WARN_BELOW = 50;
+
 export type Tone = "ok" | "warn" | "bad";
 
 export interface HudModel {
@@ -19,15 +22,17 @@ export interface HudModel {
   credits: number;
   daysLeft: number;
   health: number;
+  healthMax: number;
   healthTone: Tone;
   strength: number;
+  strengthMax: number;
   atRisk: { goalId: string; label: string; risk: number }[];
   recovery: { day: number; of: number } | null;
 }
 
 export function hudModel(state: GameState, rules: RulesConfig): HudModel {
   const { health, strength } = state.character;
-  const healthTone: Tone = health < rules.recovery.healthBelow ? "bad" : health < 50 ? "warn" : "ok";
+  const healthTone: Tone = health < rules.recovery.healthBelow ? "bad" : health < HEALTH_WARN_BELOW ? "warn" : "ok";
   return {
     levelCode: levelCode(state.level),
     levelName: LEVEL_NAMES[state.level],
@@ -35,8 +40,10 @@ export function hudModel(state: GameState, rules: RulesConfig): HudModel {
     credits: state.credits,
     daysLeft: daysLeft(state),
     health: Math.round(health),
+    healthMax: rules.health.max,
     healthTone,
     strength: Math.round(strength),
+    strengthMax: rules.strength.max,
     atRisk: state.goals
       .filter((g) => g.status === "at_risk")
       .map((g) => ({ goalId: g.id, label: `${AREA_META[g.area].name} ${levelCode(g.level)}`, risk: Math.round(g.risk) })),

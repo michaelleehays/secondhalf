@@ -1,4 +1,4 @@
-import { AREAS, type AreaId, type CreateScene, type GameEvent, type Level, type SceneHandle, type SceneTarget, type WorldView } from "@second-half/contracts";
+import { AREAS, DEFAULT_RULES, type AreaId, type CreateScene, type GameEvent, type Level, type SceneHandle, type SceneTarget, type WorldView } from "@second-half/contracts";
 import { AREA_META } from "./labels";
 
 /**
@@ -124,8 +124,10 @@ export const createPlaceholderScene: CreateScene = async (container) => {
       const x = cx + Math.cos(a) * d;
       const y = cy + Math.sin(a) * d;
       ctx.fillStyle = "#E5484D";
-      ctx.globalAlpha = 0.35 + r.strength * 0.13;
-      diamond(ctx, x, y, 4 + r.strength * 1.3);
+      // CreateScene gets no rules config, so scale against the default Resistance max.
+      const s = Math.max(0, Math.min(1, r.strength / DEFAULT_RULES.resistance.max));
+      ctx.globalAlpha = 0.35 + s * 0.65;
+      diamond(ctx, x, y, 4 + s * 6.5);
       ctx.globalAlpha = 1;
       if (r.attackingGoalId) {
         ctx.strokeStyle = "rgba(229,72,77,.8)";

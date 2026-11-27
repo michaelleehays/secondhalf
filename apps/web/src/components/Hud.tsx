@@ -26,8 +26,8 @@ export function Hud({ hud }: { hud: HudModel }) {
         </dl>
       </div>
       <div className="pills">
-        <Meter label="Health" value={hud.health} tone={hud.healthTone} />
-        <Meter label="Strength" value={hud.strength} tone="cool" />
+        <Meter label="Health" value={hud.health} max={hud.healthMax} tone={hud.healthTone} />
+        <Meter label="Strength" value={hud.strength} max={hud.strengthMax} tone="cool" />
         {hud.recovery ? (
           <span className="pill rec">
             Recovery · day {hud.recovery.day} of {hud.recovery.of}
@@ -44,12 +44,13 @@ export function Hud({ hud }: { hud: HudModel }) {
   );
 }
 
-function Meter({ label, value, tone }: { label: string; value: number; tone: string }) {
+function Meter({ label, value, max, tone }: { label: string; value: number; max: number; tone: string }) {
+  const pct = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
   return (
     <span className="pill">
       {label}
-      <span className="m" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={value}>
-        <i className={`tone-${tone}`} style={{ width: `${value}%` }} />
+      <span className="m" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={max} aria-valuenow={value}>
+        <i className={`tone-${tone}`} style={{ width: `${pct}%` }} />
       </span>
       <span className="mono">{value}</span>
     </span>

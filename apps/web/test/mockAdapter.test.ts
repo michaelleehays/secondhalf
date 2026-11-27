@@ -83,3 +83,12 @@ describe("day-closed messages", () => {
     for (const t of toastsForDay([...events, ...extra], state, DEFAULT_RULES)) expect(`${t.title} ${t.body}`).not.toMatch(banned);
   });
 });
+
+describe("rule maximums", () => {
+  it("caps health and strength at the configured max, not at 100", () => {
+    const rules = { ...DEFAULT_RULES, health: { ...DEFAULT_RULES.health, max: 74 }, strength: { ...DEFAULT_RULES.strength, max: 65 } };
+    const { state } = mockCloseDay(SAMPLE_STATE, all("full"), rules);
+    expect(state.character.health).toBe(74);
+    expect(state.character.strength).toBe(65);
+  });
+});

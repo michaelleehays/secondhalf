@@ -48,7 +48,7 @@ export function mockCloseDay(state: GameState, checkIn: CheckIn, rules: RulesCon
 
   const gained = checkIn.entries.filter((e) => e.result !== "missed").length;
   if (gained) {
-    const restored = Math.min(100, health) - state.character.health;
+    const restored = Math.min(rules.health.max, health) - state.character.health;
     events.unshift({ type: "points", score: Math.round(score), credits, reason: "habit" });
     if (restored > 0) events.push({ type: "health_changed", delta: restored, reason: "habit" });
   }
@@ -60,8 +60,8 @@ export function mockCloseDay(state: GameState, checkIn: CheckIn, rules: RulesCon
     events.push({ type: "setback", resistance: id, damage });
   }
 
-  const nextHealth = clamp(health);
-  const nextStrength = clamp(strength);
+  const nextHealth = clamp(health, rules.health.max);
+  const nextStrength = clamp(strength, rules.strength.max);
   if (nextStrength !== state.character.strength) events.push({ type: "strength_changed", delta: nextStrength - state.character.strength });
   if (nextHealth <= rules.health.knockedDownAt && state.character.health > rules.health.knockedDownAt) events.push({ type: "knocked_down" });
 
@@ -78,4 +78,4 @@ export function mockCloseDay(state: GameState, checkIn: CheckIn, rules: RulesCon
   };
 }
 
-const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n * 10) / 10));
+const clamp = (n: number, max: number) => Math.max(0, Math.min(max, Math.round(n * 10) / 10));

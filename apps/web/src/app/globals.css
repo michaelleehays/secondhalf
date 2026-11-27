@@ -41,6 +41,7 @@ h2 { font-family: var(--display); margin: 0; letter-spacing: -0.01em; text-wrap:
 .small { font-size: 0.84rem; }
 
 .app { position: fixed; inset: 0; overflow: hidden; }
+.backdrop { position: absolute; inset: 0; }
 
 /* Scene slot: full screen, under everything. */
 .scene-slot { position: absolute; inset: 0; }
@@ -131,7 +132,7 @@ h2 { font-family: var(--display); margin: 0; letter-spacing: -0.01em; text-wrap:
 .seg button[aria-pressed="true"].x { background: var(--risk); border-color: var(--risk); color: #fff; }
 .why { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .why span { font-size: 0.76rem; color: var(--muted); width: 100%; }
-.why button { border: 1px solid var(--line); background: transparent; border-radius: 99px; padding: 7px 12px; min-height: 36px; font-size: 0.8rem; color: var(--muted); }
+.why button { border: 1px solid var(--line); background: transparent; border-radius: 99px; padding: 8px 14px; min-height: 44px; font-size: 0.8rem; color: var(--muted); }
 .why button[aria-pressed="true"] { border-color: var(--risk); color: #ffb8ba; background: rgba(229, 72, 77, 0.14); }
 .btn { border: 1px solid var(--line); background: var(--panel-2); padding: 11px 16px; border-radius: 12px; font-weight: 700; font-size: 0.9rem; min-height: 44px; }
 .btn.primary { background: var(--signal); border-color: var(--signal); color: #1a0c04; margin-left: auto; flex: 1; max-width: 240px; }

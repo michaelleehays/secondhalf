@@ -25,6 +25,8 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
   const [closedOn, setClosedOn] = useState<IsoDate | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const scene = useRef<SceneHandle | null>(null);
+  /** The control that opened the sheet, so focus can go back to it when the sheet closes. */
+  const opener = useRef<HTMLElement | null>(null);
   const toastId = useRef(0);
 
   useEffect(() => {
@@ -48,6 +50,14 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
     setSheet(null);
     scene.current?.focus({ kind: "home" });
   }, []);
+
+  // Return focus once the sheet is closed and the background is no longer inert.
+  useEffect(() => {
+    if (sheet !== null || !opener.current) return;
+    const el = opener.current;
+    opener.current = null;
+    if (el.isConnected) el.focus();
+  }, [sheet]);
 
   const onSelect = useCallback((t: SceneTarget & { level?: Level }) => {
     // Area, athlete and Vision sheets land in the next pull request. For now the scene just focuses.
@@ -80,6 +90,7 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
       return;
     }
     scene.current?.focus({ kind: "home" });
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setSheet("checkin");
   };
 
@@ -88,25 +99,28 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
 
   return (
     <main className="app">
-      <SceneSlot view={view} onReady={(h) => (scene.current = h)} onSelect={onSelect} />
-      {hud ? <Hud hud={hud} /> : null}
-      <div className="dock">
-        {state ? (
-          <button className={`cta${closed ? " done" : ""}`} onClick={openCheckIn}>
-            {closed ? (
-              <>
-                Day closed <small>· see you tomorrow</small>
-              </>
-            ) : (
-              <>
-                Tonight&apos;s check-in{" "}
-                <small>
-                  · {habits.length} {habits.length === 1 ? "habit" : "habits"}
-                </small>
-              </>
-            )}
-          </button>
-        ) : null}
+      {/* Everything behind an open sheet is inert, so Tab and screen readers stay in the sheet. */}
+      <div className="backdrop" inert={sheet !== null}>
+        <SceneSlot view={view} onReady={(h) => (scene.current = h)} onSelect={onSelect} />
+        {hud ? <Hud hud={hud} /> : null}
+        <div className="dock">
+          {state ? (
+            <button className={`cta${closed ? " done" : ""}`} onClick={openCheckIn}>
+              {closed ? (
+                <>
+                  Day closed <small>· see you tomorrow</small>
+                </>
+              ) : (
+                <>
+                  Tonight&apos;s check-in{" "}
+                  <small>
+                    · {habits.length} {habits.length === 1 ? "habit" : "habits"}
+                  </small>
+                </>
+              )}
+            </button>
+          ) : null}
+        </div>
       </div>
       {state ? (
         <CheckInSheet
