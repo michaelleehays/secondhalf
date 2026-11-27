@@ -15,7 +15,9 @@ import {
   type StepResult,
 } from "@second-half/contracts";
 import { activeRules, adjustmentFor, daysBetween, hasEffect, reportsIn, usualMissOn } from "./resistance";
+import { appendHistory } from "./history";
 import { withLevels } from "./levels";
+import { recoveryDay, withAutoRecovery } from "./recovery";
 import { applyDayRisk } from "./risk";
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -49,9 +51,13 @@ function earnsProgress(goal: Goal, state: GameState): boolean {
  * - Health and strength changes are summed and clamped once, so entry order never matters.
  * - Score is never taken away.
  *
+ * - In Recovery the day runs `recoveryDay` instead; otherwise Recovery may start automatically at the end
+ *   (see `withAutoRecovery`). Reaching `health.knockedDownAt` emits `knocked_down`.
+ *
  * Callers must close each date once: closing the same date twice counts it twice.
  */
 export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig = DEFAULT_RULES): StepResult {
+  if (state.recovery) return recoveryDay(state, checkIn, config);
   const events: GameEvent[] = [];
   const date = checkIn.date;
   const mult = config.levelMultiplier[state.level];
@@ -126,18 +132,7 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
   }
 
   // History: append today's result and keep the last `history.days` days.
-  const habits = state.habits.map((h): Habit => {
-    const entry = entries.get(h.id);
-    if (!entry) return h;
-    const today: HabitDay = {
-      date,
-      result: entry.result,
-      ...(entry.reason ? { reason: entry.reason } : {}),
-      ...(graced.has(h.id) ? { graced: true } : {}),
-    };
-    const history = [...h.history, today].filter((d) => daysBetween(d.date, date) < config.history.days);
-    return { ...h, history };
-  });
+  const habits = appendHistory(state.habits, entries, graced, date, config);
 
   // Resistance: strength, reports, setbacks and rule adjustments.
   const newRules: RuleAdjustment[] = [];
@@ -186,6 +181,7 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
   for (const reason of ["habit", "miss", "double_miss", "setback"] as const) {
     if (health[reason] !== 0) events.push({ type: "health_changed", delta: health[reason], reason });
   }
+  if (startHealth > config.health.knockedDownAt && endHealth <= config.health.knockedDownAt) events.push({ type: "knocked_down" });
 
   const startStrength = state.character.strength;
   const endStrength = clamp(startStrength + strengthGain, 0, config.strength.max);
@@ -212,7 +208,7 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
   // At risk, clean days, setback pressure and lost ground.
   const goals = applyDayRisk(progressed, { state, habits, entries, countedFull, graced, setbackAreas, date }, events, config);
 
-  return withLevels({
+  const result = withLevels({
     state: {
       ...state,
       today: date,
@@ -227,4 +223,5 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
     },
     events,
   }, config);
+  return withAutoRecovery(result, date, config);
 }

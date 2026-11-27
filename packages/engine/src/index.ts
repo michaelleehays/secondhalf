@@ -7,10 +7,12 @@ import {
 } from "@second-half/contracts";
 import { closeDay } from "./closeDay";
 import { closeWeek } from "./closeWeek";
+import { startLifeEvent } from "./recovery";
 import { quarterlyCheck } from "./risk";
 
 export { closeDay } from "./closeDay";
 export { closeWeek } from "./closeWeek";
+export { recoveryHabit, startLifeEvent } from "./recovery";
 export { quarterlyCheck, raiseRisk } from "./risk";
 export { checkLevels } from "./levels";
 
@@ -27,7 +29,7 @@ export function createEngine(config: RulesConfig = DEFAULT_RULES): Engine {
   return {
     closeDay: (state, checkIn) => closeDay(state, checkIn, config),
     closeWeek: (state, weekEnding) => closeWeek(state, weekEnding, config),
-    startLifeEvent: notYet("startLifeEvent"),
+    startLifeEvent: (state, date) => startLifeEvent(state, date, config),
     equipGamePlan: notYet("equipGamePlan"),
     quarterlyCheck: (state, goalId, passed, date) => quarterlyCheck(state, goalId, passed, date, config),
     projectedFinalScore: (state) => projectedFinalScore(state, config),
