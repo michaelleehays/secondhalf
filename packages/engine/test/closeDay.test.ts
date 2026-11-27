@@ -164,7 +164,7 @@ describe("closeDay", () => {
 
   it("history: each check-in is appended to the habit's history, oldest first", () => {
     const { state } = day(SAMPLE_STATE, missed("run"), full("meditate"));
-    expect(state.habits.find((h) => h.id === "run")!.history).toEqual([{ date: DATE, result: "missed", reason: "fatigue" }]);
+    expect(state.habits.find((h) => h.id === "run")!.history).toEqual([{ date: DATE, result: "missed", reason: "fatigue", graced: true }]);
     expect(state.habits.find((h) => h.id === "meditate")!.history).toEqual([{ date: DATE, result: "full" }]);
     expect(state.habits.find((h) => h.id === "deep-work")!.history).toEqual([]);
   });
