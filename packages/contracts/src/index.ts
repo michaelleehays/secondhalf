@@ -69,6 +69,8 @@ export interface HabitDay {
   date: IsoDate;
   result: CheckInResult;
   reason?: ResistanceId;
+  /** True when a grace day covered this miss. Graced misses do not count toward the at-risk pattern. */
+  graced?: boolean;
 }
 
 export interface Habit {
@@ -252,6 +254,11 @@ export interface Engine {
   /** User-declared life event (illness, emergency, travel). Starts Recovery if allowed this season. */
   startLifeEvent(state: GameState, date: IsoDate): StepResult;
   equipGamePlan(state: GameState, gamePlanId: string, equipped: boolean): StepResult;
+  /**
+   * Result of a locked-in milestone goal's quarterly check (e.g. one benchmark 5K, fund still above $5,000).
+   * A pass sets lastQuarterlyCheck. A fail puts the goal at risk at rules.risk.onTrigger.
+   */
+  quarterlyCheck(state: GameState, goalId: string, passed: boolean, date: IsoDate): StepResult;
   /** Projected final score at endAge at the current pace. */
   projectedFinalScore(state: GameState): number;
   /** What the 3D scene needs to draw. */
