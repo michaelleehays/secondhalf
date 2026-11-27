@@ -7,7 +7,7 @@ import {
 } from "@second-half/contracts";
 import { closeDay } from "./closeDay";
 
-export { closeDay, type HabitWithLastResult } from "./closeDay";
+export { closeDay } from "./closeDay";
 
 /**
  * Game engine. Workstream A implements closeDay, closeWeek, startLifeEvent and equipGamePlan
