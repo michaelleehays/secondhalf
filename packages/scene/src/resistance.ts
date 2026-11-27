@@ -20,7 +20,7 @@ export interface AttackTarget {
 
 export interface ResistanceLayer {
   group: THREE.Group;
-  /** Tap targets; `userData.resistance` holds the id and `userData.targetArea` the area. */
+  /** Tap targets; `userData.resistance` holds the Resistance id. */
   hitProxies: THREE.Object3D[];
   /**
    * Draw the markers in the view. `resolve` turns an attackingGoalId into a cell, or null when it
@@ -159,7 +159,6 @@ export function createResistanceLayer(): ResistanceLayer {
         const m = marker(r.id);
         m.group.visible = true;
         m.group.position.set(...resistanceSpot(r.targetArea));
-        m.proxy.userData.targetArea = r.targetArea;
         m.levelGoal = Math.max(0, Math.min(1, r.strength / STRENGTH_MAX));
         const target = r.attackingGoalId ? resolve(r.attackingGoalId) : null;
         const key = target ? `${r.targetArea}|${target.area}|${target.level}` : "";

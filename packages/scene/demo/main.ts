@@ -12,17 +12,8 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 let state: GameState = structuredClone(SAMPLE_STATE);
 
 const scene = await createScene($("scene"), { assetsBaseUrl: "" });
-/**
- * Demo-only shim: CellView has no goal id in the contract yet, so attack lines and per-cell
- * effects have nothing to point at. toWorldView maps goals to cells in order, so the demo adds
- * each goal's id to its cell to show what the scene does once the contract carries it.
- */
-const view = (s: GameState) => {
-  const v = toWorldView(s);
-  return { ...v, cells: v.cells.map((c, i) => ({ ...c, goalId: s.goals[i]!.id })) };
-};
 const render = () => {
-  scene.update(view(state));
+  scene.update(toWorldView(state));
   $<HTMLInputElement>("health").value = String(state.character.health);
   $<HTMLInputElement>("strength").value = String(state.character.strength);
   $("healthV").textContent = String(Math.round(state.character.health));

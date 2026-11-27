@@ -68,8 +68,7 @@ local frame. When workstream D ships clips, a mixer can drive the rest pose and 
 
 Each `WorldView.resistance` entry gets a marker just outside the 101 ring, centred on its target
 area's slice, sized and lit by strength (1..5). When `attackingGoalId` resolves to a cell, a dashed
-line marches from the marker to that cell. Tapping a marker reports `{ kind: "area", area, level: 1 }`
-for its target area until `SceneTarget` has a Resistance kind.
+line marches from the marker to that cell. Tapping a marker reports `{ kind: "resistance", id }`.
 
 | Event | What the scene does |
 | --- | --- |
@@ -83,8 +82,7 @@ for its target area until `SceneTarget` has a Resistance kind.
 | `recovery_started` | Cool flash. The light stays cooler while `inRecovery` is true |
 
 The athlete walks to the edge of the current level's ring in the Body slice whenever `level`
-changes. Per-cell effects need the goal id on each cell: the scene reads `goalId` from a cell when
-present (proposed contract change) and otherwise skips the cell effect.
+changes. Per-cell effects find their cell through `CellView.goalId`.
 
 ## Not yet
 

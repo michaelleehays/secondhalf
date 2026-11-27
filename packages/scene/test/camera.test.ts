@@ -52,3 +52,24 @@ describe("area shot", () => {
     }
   });
 });
+
+describe("home shot", () => {
+  it("frames the front Resistance markers on desktop screens, and keeps the phone shot", async () => {
+    const { resistanceSpot } = await import("../src/layout");
+    for (const aspect of [16 / 9, 16 / 10, 4 / 3]) {
+      const cam = new THREE.PerspectiveCamera(42, aspect, 0.1, 200);
+      const s = shotFor({ kind: "home" }, { ...ctx, aspect });
+      cam.position.copy(s.pos);
+      cam.lookAt(s.look);
+      cam.updateMatrixWorld();
+      for (const area of ["body", "mind", "money"] as const) {
+        const base = new THREE.Vector3(...resistanceSpot(area)).project(cam);
+        const top = new THREE.Vector3(...resistanceSpot(area)).add(new THREE.Vector3(0, 3, 0)).project(cam);
+        expect(Math.abs(base.x)).toBeLessThan(1);
+        expect(Math.abs(base.y)).toBeLessThan(1);
+        expect(Math.abs(top.y)).toBeLessThan(1);
+      }
+    }
+    expect(shotFor({ kind: "home" }, { ...ctx, aspect: 390 / 844 }).pos.toArray()).toEqual([0, 9, 36]);
+  });
+});

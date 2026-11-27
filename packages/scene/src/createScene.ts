@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { AREAS } from "@second-half/contracts";
-import type { AreaId, CellView, CreateScene, GameEvent, Level, ResistanceId, SceneHandle, SceneTarget, WorldView } from "@second-half/contracts";
+import type { AreaId, CreateScene, GameEvent, Level, ResistanceId, SceneHandle, SceneTarget, WorldView } from "@second-half/contracts";
 import { athleteModelUrl, createAthlete, type Athlete } from "./athlete";
 import { createRingBurst } from "./burst";
 import { CameraRig } from "./camera";
@@ -43,7 +43,8 @@ export const createScene: CreateScene = async (container, options) => {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(WORLD_HEX.sky);
-  scene.fog = new THREE.Fog(WORLD_HEX.sky, 34, 70);
+  const fog = new THREE.Fog(WORLD_HEX.sky, 34, 70);
+  scene.fog = fog;
 
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
   const rig = new CameraRig(camera);
@@ -81,7 +82,8 @@ export const createScene: CreateScene = async (container, options) => {
   }
   let athlete: Athlete | null = null;
 
-  const pickable: THREE.Object3D[] = [terrain.mesh, terrain.summit, ...resistance.hitProxies];
+  /** Fixed tap targets. Resistance markers appear with the first view, so pick() adds them per tap. */
+  const pickable: THREE.Object3D[] = [terrain.mesh, terrain.summit];
 
   let view: WorldView | null = null;
   let disposed = false;
@@ -147,14 +149,11 @@ export const createScene: CreateScene = async (container, options) => {
     const r = canvas.getBoundingClientRect();
     ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
-    const hit = ray.intersectObjects(pickable, false)[0];
+    const hit = ray.intersectObjects([...pickable, ...resistance.hitProxies], false)[0];
     if (!hit) return null;
     if (athlete && hit.object === athlete.hitProxy) return { kind: "athlete" };
     const resistanceId = hit.object.userData.resistance as ResistanceId | undefined;
-    if (resistanceId) {
-      // SceneTarget has no Resistance kind yet, so a marker reports the area it attacks.
-      return { kind: "area", area: hit.object.userData.targetArea as AreaId, level: 1 };
-    }
+    if (resistanceId) return { kind: "resistance", id: resistanceId };
     if (hit.object === terrain.summit) return { kind: "vision", level: 5 };
     const ring = ringAt(Math.hypot(hit.point.x, hit.point.z));
     if (ring === 0) return { kind: "home" };
@@ -176,7 +175,7 @@ export const createScene: CreateScene = async (container, options) => {
     flashLight.intensity = intensity;
   }
 
-  /** Goal id to cell, from the latest view. Filled only when cells carry a goalId (see below). */
+  /** Goal id to cell, from the latest view. */
   const goalCells = new Map<string, AttackTarget>();
   const resolveGoal = (goalId: string) => goalCells.get(goalId) ?? null;
   const cellOf = (goalId: string) => {
@@ -284,6 +283,10 @@ export const createScene: CreateScene = async (container, options) => {
     }
     flashLight.intensity *= Math.pow(0.03, dt);
     rig.update(dt, level(), (athlete?.down ?? 0) > 0.5, first || reduceMotion);
+    // Fog follows the camera's distance, so a pulled-back shot doesn't bury the mountain in haze.
+    const camDist = camera.position.length();
+    fog.near = camDist + FOG.near;
+    fog.far = camDist + FOG.far;
     first = false;
     renderer.render(scene, camera);
   };
@@ -296,11 +299,7 @@ export const createScene: CreateScene = async (container, options) => {
       view = next;
       terrain.setCells(next.cells);
       goalCells.clear();
-      for (const c of next.cells) {
-        // CellView has no goal id in the contract yet; use it when the engine provides one.
-        const goalId = (c as CellView & { goalId?: string }).goalId;
-        if (goalId) goalCells.set(goalId, { area: c.area, level: c.level });
-      }
+      for (const c of next.cells) if (c.goalId) goalCells.set(c.goalId, { area: c.area, level: c.level });
       resistance.update(next.resistance, resolveGoal);
       const [x, , z] = athleteSpot(next.level);
       if (firstView || reduceMotion) walker.place(x, z);
@@ -363,6 +362,8 @@ const LIGHT_COLORS = {
   sunWarm: new THREE.Color(LIGHT.sunWarm),
   sunCool: new THREE.Color(LIGHT.sunCool),
 };
+/** Fog start and end, measured beyond the camera's distance from the summit axis. */
+const FOG = { near: 4, far: 40 } as const;
 /** Event colours not tied to an area. */
 const EFFECT_HEX = { calm: "#cfefdb" } as const;
 
