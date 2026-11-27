@@ -11,54 +11,102 @@ import { AREA_HEX, WORLD_HEX } from "./palette";
  */
 export interface Terrain {
   mesh: THREE.Mesh;
+  /** Grid segments per side this terrain was built with. */
+  segments: number;
+  shading: "standard" | "lambert";
   /** Ring and sector guide lines plus the summit beacon. */
   extras: THREE.Group;
   /** The beacon above the summit (tap target for The Vision). */
   summit: THREE.Object3D;
+  /** Point light at the summit; hidden at low quality. */
+  summitLight: THREE.Object3D;
   setCells(cells: readonly CellView[]): void;
-  /** Seconds, for the risk pulse. Pass a constant to stop motion. */
-  tick(time: number): void;
+  /** One-off cell effects for events, by cell index (see cellIndex). They fade on their own. */
+  flashCell(index: number, color: THREE.Color, amount?: number): void;
+  pulseCell(index: number, amount?: number): void;
+  darkenCell(index: number, amount?: number): void;
+  shakeCell(index: number, amount?: number): void;
+  /** `time` in seconds drives the pulses (pass a constant to stop motion); `dt` fades the effects. */
+  tick(time: number, dt: number): void;
   dispose(): void;
 }
 
 export interface TerrainOptions {
   /** Grid segments per side. Lower on phones. */
   segments: number;
+  /** "lambert" is cheaper per pixel than "standard" (physically based); used at low quality. */
+  shading?: "standard" | "lambert";
 }
 
 const SIZE = 64;
+/** How fast each one-off cell effect fades, per second (1 / duration). */
+const FX_FADE = { flash: 1 / 1.2, pulse: 1 / 2.4, darken: 1 / 1.8, shake: 1 / 0.6 };
 const glslFloat = (n: number) => (Number.isInteger(n) ? `${n}.0` : String(n));
 
 /** Shader constants come from layout.ts so the GPU and the hit test agree on every boundary. */
-const SHADER_DEFS = `
+const SHADER_COMMON = `
 uniform float uTime;
-uniform vec4 uFill[${CELL_COUNT}];
-uniform vec4 uMeta[${CELL_COUNT}];
+uniform vec4 uFx[${CELL_COUNT}];   // flash rgb, flash amount
+uniform vec4 uFx2[${CELL_COUNT}];  // event pulse, darken, shake, unused
 varying vec3 vTerrainPos;
 const float RING_R[5] = float[5](${RING_OUTER.map(glslFloat).join(",")});
 const float SECTOR_A0[5] = float[5](${AREAS.map((a) => glslFloat(SECTOR_START_DEG[a])).join(",")});
 const float SECTOR_SPAN = ${glslFloat(SECTOR_SPAN_DEG)};
+// Band at radius rr: 1..4 for a level ring, 5 for The Vision, 0 outside.
+int ringAt(float rr) {
+  return rr < RING_R[4] ? 5 : (rr < RING_R[3] ? 4 : (rr < RING_R[2] ? 3 : (rr < RING_R[1] ? 2 : (rr < RING_R[0] ? 1 : 0))));
+}
+// Sector index at (x, z), and how far across it (0..1).
+int sectorAt(vec2 xz, out float fr) {
+  float ang = degrees(atan(xz.x, xz.y));
+  int sec = 0; fr = 0.0;
+  for (int s = 0; s < 5; s++) {
+    float d = mod(ang - SECTOR_A0[s] + 720.0, 360.0);
+    if (d < SECTOR_SPAN) { sec = s; fr = d / SECTOR_SPAN; }
+  }
+  return sec;
+}
+`;
+
+const SHADER_FRAG_DEFS = `
+uniform vec4 uFill[${CELL_COUNT}];
+uniform vec4 uMeta[${CELL_COUNT}];
 const vec3 RISK_RGB = vec3(${riskLinear()});
+`;
+
+/** Cells shake vertically (ground_lost) by moving the vertex, before projection. */
+const SHADER_VERTEX = `
+  vTerrainPos = position;
+  {
+    int ring = ringAt(length(position.xz));
+    if (ring >= 1 && ring <= 4) {
+      float fr;
+      int idx = (ring - 1) * 5 + sectorAt(position.xz, fr);
+      float sh = uFx2[idx].z;
+      if (sh > 0.0) transformed.y += sh * 0.14 * sin(uTime * 48.0 + position.x * 2.3 + position.z * 1.7);
+    }
+  }
 `;
 
 const SHADER_CELLS = `
   {
     float rr = length(vTerrainPos.xz);
-    float ang = degrees(atan(vTerrainPos.x, vTerrainPos.z));
-    int ring = rr < RING_R[4] ? 5 : (rr < RING_R[3] ? 4 : (rr < RING_R[2] ? 3 : (rr < RING_R[1] ? 2 : (rr < RING_R[0] ? 1 : 0))));
+    int ring = ringAt(rr);
     float riskAmp = 0.0;
+    float pulseAmp = 0.0;
     if (ring >= 1 && ring <= 4) {
-      int sec = 0; float fr = 0.0;
-      for (int s = 0; s < 5; s++) {
-        float d = mod(ang - SECTOR_A0[s] + 720.0, 360.0);
-        if (d < SECTOR_SPAN) { sec = s; fr = d / SECTOR_SPAN; }
-      }
-      int idx = (ring - 1) * 5 + sec;
+      float fr;
+      int idx = (ring - 1) * 5 + sectorAt(vTerrainPos.xz, fr);
       vec4 F = uFill[idx];   // rgb tint, fill over the done part
       vec4 M = uMeta[idx];   // progress, fill over the rest, risk amplitude, brightness
+      vec4 X = uFx[idx];     // event flash colour and amount
+      vec4 Y = uFx2[idx];    // event pulse, darken, shake
       float m = fr <= M.x ? F.w : M.y;
       diffuseColor.rgb = mix(diffuseColor.rgb, F.rgb, m) * M.w;
+      diffuseColor.rgb *= 1.0 - 0.6 * Y.y;
+      diffuseColor.rgb = mix(diffuseColor.rgb, X.rgb, X.w * 0.7);
       riskAmp = M.z;
+      pulseAmp = Y.x;
       // Darken a thin band along sector edges (in world units) for crisp cell borders.
       float edge = min(fr, 1.0 - fr) * radians(SECTOR_SPAN) * rr;
       diffuseColor.rgb *= mix(0.5, 1.0, smoothstep(0.0, 0.1, edge));
@@ -72,6 +120,9 @@ const SHADER_CELLS = `
     diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.42, line * (0.45 + 0.3 * major) * step(-0.05, vTerrainPos.y));
     float pulse = 0.5 + 0.5 * sin(uTime * 3.5);
     diffuseColor.rgb = mix(diffuseColor.rgb, RISK_RGB, riskAmp * (0.18 + 0.3 * pulse));
+    // A one-off at_risk pulse: faster and stronger than the standing risk pulse.
+    float fast = 0.5 + 0.5 * sin(uTime * 9.0);
+    diffuseColor.rgb = mix(diffuseColor.rgb, RISK_RGB, min(1.0, pulseAmp) * (0.25 + 0.45 * fast));
   }
 `;
 
@@ -109,20 +160,28 @@ export function createTerrain(opts: TerrainOptions): Terrain {
   const uTime = { value: 0 };
   const uFill = { value: Array.from({ length: CELL_COUNT }, () => new THREE.Vector4()) };
   const uMeta = { value: Array.from({ length: CELL_COUNT }, () => new THREE.Vector4(0, 0, 0, 1)) };
+  // Vector4 defaults w to 1, so set all four: effects start off.
+  const uFx = { value: Array.from({ length: CELL_COUNT }, () => new THREE.Vector4(0, 0, 0, 0)) };
+  const uFx2 = { value: Array.from({ length: CELL_COUNT }, () => new THREE.Vector4(0, 0, 0, 0)) };
 
-  const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
+  const material =
+    opts.shading === "lambert"
+      ? new THREE.MeshLambertMaterial({ vertexColors: true })
+      : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = uTime;
     shader.uniforms.uFill = uFill;
     shader.uniforms.uMeta = uMeta;
+    shader.uniforms.uFx = uFx;
+    shader.uniforms.uFx2 = uFx2;
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nvarying vec3 vTerrainPos;")
-      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvTerrainPos = position;");
+      .replace("#include <common>", `#include <common>\n${SHADER_COMMON}`)
+      .replace("#include <begin_vertex>", `#include <begin_vertex>\n${SHADER_VERTEX}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", `#include <common>\n${SHADER_DEFS}`)
+      .replace("#include <common>", `#include <common>\n${SHADER_COMMON}\n${SHADER_FRAG_DEFS}`)
       .replace("#include <color_fragment>", `#include <color_fragment>\n${SHADER_CELLS}`);
   };
-  material.customProgramCacheKey = () => "second-half-terrain";
+  material.customProgramCacheKey = () => `second-half-terrain-${opts.shading ?? "standard"}`;
 
   const mesh = new THREE.Mesh(geo, material);
   mesh.name = "terrain";
@@ -142,15 +201,43 @@ export function createTerrain(opts: TerrainOptions): Terrain {
 
   const extras = buildExtras();
   const summit = extras.getObjectByName("summit")!;
+  const summitLight = extras.getObjectByName("summit-light")!;
 
   return {
     mesh,
+    segments: opts.segments,
+    shading: opts.shading ?? "standard",
     extras,
     summit,
+    summitLight,
     setCells,
-    tick: (t) => {
+    flashCell(i, color, amount = 1) {
+      const v = uFx.value[i];
+      if (v) v.set(color.r, color.g, color.b, Math.max(v.w, amount));
+    },
+    pulseCell(i, amount = 1) {
+      const v = uFx2.value[i];
+      if (v) v.x = Math.max(v.x, amount);
+    },
+    darkenCell(i, amount = 1) {
+      const v = uFx2.value[i];
+      if (v) v.y = Math.max(v.y, amount);
+    },
+    shakeCell(i, amount = 1) {
+      const v = uFx2.value[i];
+      if (v) v.z = Math.max(v.z, amount);
+    },
+    tick: (t, dt) => {
       uTime.value = t;
       summit.rotation.y = t * 0.6;
+      for (let i = 0; i < CELL_COUNT; i++) {
+        const a = uFx.value[i]!;
+        const b = uFx2.value[i]!;
+        a.w = fade(a.w, dt * FX_FADE.flash);
+        b.x = fade(b.x, dt * FX_FADE.pulse);
+        b.y = fade(b.y, dt * FX_FADE.darken);
+        b.z = fade(b.z, dt * FX_FADE.shake);
+      }
     },
     dispose: () => {
       geo.dispose();
@@ -163,6 +250,12 @@ export function createTerrain(opts: TerrainOptions): Terrain {
       });
     },
   };
+}
+
+/** Steps an effect toward 0. Anything not a positive number (including NaN) ends at 0. */
+function fade(v: number, by: number): number {
+  const next = v - by;
+  return next > 0 ? next : 0;
 }
 
 /** Faint guide lines along ring and sector borders, and the gold beacon on the summit. */
@@ -202,6 +295,7 @@ function buildExtras(): THREE.Group {
   beacon.position.set(0, heightAt(0, 0) + 1.2, 0);
   group.add(beacon);
   const glow = new THREE.PointLight(0xffc870, 1.2, 10, 1);
+  glow.name = "summit-light";
   glow.position.copy(beacon.position);
   group.add(glow);
   return group;

@@ -43,3 +43,13 @@ describe("layout", () => {
     expect(Math.hypot(x, z)).toBeGreaterThan(RING_OUTER[1]);
   });
 });
+
+describe("normalAt", () => {
+  it("points up and leans away from the summit on the slope", async () => {
+    const { normalAt } = await import("../src/layout");
+    const [x, y, z] = normalAt(0, 12);
+    expect(Math.hypot(x, y, z)).toBeCloseTo(1);
+    expect(y).toBeGreaterThan(0.5);
+    expect(z).toBeGreaterThan(0);
+  });
+});

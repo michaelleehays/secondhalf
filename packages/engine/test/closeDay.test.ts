@@ -42,7 +42,7 @@ describe("closeDay", () => {
     const { state, events } = day(SAMPLE_STATE, full("run"));
     expect(state.score).toBe(SAMPLE_STATE.score + 19);
     expect(state.credits).toBe(SAMPLE_STATE.credits + 10);
-    expect(events).toContainEqual({ type: "points", score: 19, credits: 10, reason: "habit" });
+    expect(events).toContainEqual({ type: "points", score: 19, credits: 10, reason: "habit", sourceId: "run" });
   });
 
   it("minimum habit earns minimum points times the level multiplier, and minimum credits (Level 201: 6 x 1.25 = 8)", () => {
@@ -52,8 +52,10 @@ describe("closeDay", () => {
   });
 
   it("credits do not take the level multiplier", () => {
-    const level1 = day({ ...SAMPLE_STATE, level: 1 }, full("run")).state;
-    const level2 = day(SAMPLE_STATE, full("run")).state;
+    // Level changes off, so only the habit's credits are compared.
+    const config = { ...R, levels: { ...R.levels, goalsToClear: 99 } };
+    const level1 = closeDay({ ...SAMPLE_STATE, level: 1 }, { date: DATE, entries: [full("run")] }, config).state;
+    const level2 = closeDay(SAMPLE_STATE, { date: DATE, entries: [full("run")] }, config).state;
     expect(level1.credits - SAMPLE_STATE.credits).toBe(level2.credits - SAMPLE_STATE.credits);
     expect(level2.score - SAMPLE_STATE.score).toBeGreaterThan(level1.score - SAMPLE_STATE.score);
   });
@@ -65,36 +67,60 @@ describe("closeDay", () => {
 
   it("done habits build strength: full and minimum gain their own amounts", () => {
     const { state, events } = day(SAMPLE_STATE, full("run"), minimum("meditate"));
-    const gain = R.strength.fullGain + R.strength.minimumGain;
-    expect(state.character.strength).toBe(SAMPLE_STATE.character.strength + gain);
-    expect(events).toContainEqual({ type: "strength_changed", delta: gain });
+    const start = SAMPLE_STATE.character.strength;
+    const delta = R.strength.fullGain + R.strength.minimumGain - start * R.strength.dailyDecay;
+    expect(state.character.strength).toBeCloseTo(start + delta);
+    expect(events).toContainEqual({ type: "strength_changed", delta: expect.closeTo(delta) });
   });
 
   it("health changes are summed and clamped once, so entry order does not matter", () => {
-    const start = withCharacter({ health: 100, graceDaysLeft: 0 });
+    // At max health, clamping after each entry would give a different total in each order.
+    const top = R.health.max;
+    const start = withCharacter({ health: top, graceDaysLeft: 0 });
     const a = day(start, full("run"), missed("meditate"));
     const b = day(start, missed("meditate"), full("run"));
-    const expected = 100 + R.health.fullRestore - R.health.missCost;
+    const expected = Math.min(top, top + R.health.fullRestore - R.health.missCost);
     expect(a.state.character.health).toBe(expected);
     expect(b.state.character.health).toBe(expected);
     expect(a.events).toEqual(b.events);
     const sum = (r: typeof a) => r.events.reduce((n, e) => n + (e.type === "health_changed" ? e.delta : 0), 0);
-    expect(sum(a)).toBe(expected - 100);
-    expect(sum(b)).toBe(expected - 100);
+    expect(sum(a)).toBe(expected - top);
+    expect(sum(b)).toBe(expected - top);
   });
 
   it("health events add up to the clamped change", () => {
-    const top = day(withCharacter({ health: 99 }), full("run"), full("meditate"));
+    // One short of max, two full habits: only 1 can be restored.
+    const top = day(withCharacter({ health: R.health.max - 1 }), full("run"), full("meditate"));
     expect(top.events.filter((e) => e.type === "health_changed")).toEqual([{ type: "health_changed", delta: 1, reason: "habit" }]);
-    // 2 + 3 - 6 = -1, clamped to 0: the events add up to -2.
-    const bottom = day(withCharacter({ health: 2, graceDaysLeft: 0 }), missed("run"), full("meditate"));
+    // One short of a miss's cost, one miss: health clamps to 0 and the events add up to what was lost.
+    const low = R.health.missCost - 1;
+    const bottom = day(withCharacter({ health: low, graceDaysLeft: 0 }), missed("run"));
     expect(bottom.state.character.health).toBe(0);
     const deltas = bottom.events.flatMap((e) => (e.type === "health_changed" ? [e.delta] : []));
-    expect(deltas.reduce((n, d) => n + d, 0)).toBe(-2);
+    expect(deltas.reduce((n, d) => n + d, 0)).toBe(-low);
+  });
+
+  it("strength missCost: each miss grace doesn't cover costs strength.missCost strength", () => {
+    const config = { ...R, strength: { ...R.strength, missCost: 2 } };
+    const start = withCharacter({ graceDaysLeft: 1 });
+    const { state } = closeDay(start, { date: DATE, entries: [missed("run"), missed("meditate")] }, config);
+    const s0 = SAMPLE_STATE.character.strength;
+    expect(state.character.strength).toBeCloseTo(s0 - 2 - s0 * R.strength.dailyDecay);
+  });
+
+  it("strength dailyDecay: each night strength loses strength.dailyDecay of itself, so it settles where gains meet decay", () => {
+    const config = { ...R, strength: { ...R.strength, dailyDecay: 0.05 } };
+    const { state, events } = closeDay(SAMPLE_STATE, { date: DATE, entries: [full("run")] }, config);
+    const expected = SAMPLE_STATE.character.strength + R.strength.fullGain - SAMPLE_STATE.character.strength * 0.05;
+    expect(state.character.strength).toBeCloseTo(expected);
+    expect(events).toContainEqual({ type: "strength_changed", delta: expect.closeTo(expected - SAMPLE_STATE.character.strength) });
   });
 
   it("health and strength stay within 0 and their max", () => {
-    const top = day(withCharacter({ health: R.health.max, strength: R.strength.max }), full("run")).state.character;
+    // Decay off, so a full habit at max strength would push past it.
+    const noDecay = { ...R, strength: { ...R.strength, dailyDecay: 0 } };
+    const start = withCharacter({ health: R.health.max, strength: R.strength.max });
+    const top = closeDay(start, { date: DATE, entries: [full("run")] }, noDecay).state.character;
     expect(top.health).toBe(R.health.max);
     expect(top.strength).toBe(R.strength.max);
     const bottom = day(withCharacter({ health: 2, graceDaysLeft: 0 }), missed("run")).state.character;
@@ -111,7 +137,8 @@ describe("closeDay", () => {
     const { state, events } = day(withCharacter({ graceDaysLeft: 1 }), missed("run"));
     expect(state.character.graceDaysLeft).toBe(0);
     expect(state.character.health).toBe(SAMPLE_STATE.character.health);
-    expect(events).toEqual([{ type: "grace_used", habitId: "run" }]);
+    expect(events).toContainEqual({ type: "grace_used", habitId: "run" });
+    expect(events.some((e) => e.type === "health_changed")).toBe(false);
   });
 
   it("a miss with no grace left costs health", () => {
@@ -163,7 +190,7 @@ describe("closeDay", () => {
 
   it("history: each check-in is appended to the habit's history, oldest first", () => {
     const { state } = day(SAMPLE_STATE, missed("run"), full("meditate"));
-    expect(state.habits.find((h) => h.id === "run")!.history).toEqual([{ date: DATE, result: "missed", reason: "fatigue" }]);
+    expect(state.habits.find((h) => h.id === "run")!.history).toEqual([{ date: DATE, result: "missed", reason: "fatigue", graced: true }]);
     expect(state.habits.find((h) => h.id === "meditate")!.history).toEqual([{ date: DATE, result: "full" }]);
     expect(state.habits.find((h) => h.id === "deep-work")!.history).toEqual([]);
   });
@@ -208,7 +235,7 @@ describe("closeDay", () => {
     expect(g.lockedInOn).toBe(DATE);
     const bonus = Math.round(R.points.goalLockedInPerLevel * 1 * mult);
     expect(events).toContainEqual({ type: "locked_in", goalId: "people-101" });
-    expect(events).toContainEqual({ type: "points", score: bonus, credits: R.credits.goalLockedInPerLevel * 1, reason: "goal_locked_in" });
+    expect(events).toContainEqual({ type: "points", score: bonus, credits: R.credits.goalLockedInPerLevel * 1, reason: "goal_locked_in", sourceId: "people-101" });
     expect(state.score).toBe(SAMPLE_STATE.score + 8 + bonus);
   });
 
@@ -225,7 +252,9 @@ describe("closeDay", () => {
 
   it("entries for unknown habits are ignored", () => {
     const { state, events } = day(SAMPLE_STATE, full("not-a-habit"));
-    expect(events).toEqual([]);
+    // Only the nightly strength decay happens.
+    expect(events.filter((e) => e.type !== "strength_changed")).toEqual([]);
+    expect(state.habits).toEqual(SAMPLE_STATE.habits);
     expect(state.score).toBe(SAMPLE_STATE.score);
   });
 

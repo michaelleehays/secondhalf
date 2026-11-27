@@ -1,0 +1,22 @@
+{
+  "name": "@second-half/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "seed:generate": "tsx scripts/generate-seed.ts",
+    "test:integration": "SUPABASE_INTEGRATION=1 vitest run --root ../.. --no-file-parallelism packages/api/test/roundtrip.test.ts packages/api/test/weekly.test.ts"
+  },
+  "dependencies": {
+    "@second-half/contracts": "0.1.0",
+    "@supabase/supabase-js": "2.49.4",
+    "@second-half/engine": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "tsx": "4.19.2"
+  }
+}

@@ -42,7 +42,7 @@ export function cellLook(cell: CellView): CellLook {
   return cell.frozen ? { ...look, brightness: look.brightness * FROZEN_DIM } : look;
 }
 
-const HIDDEN: CellView = { area: "body", level: 1, status: "hidden", progress: 0, risk: 0, frozen: false };
+const HIDDEN: CellView = { goalId: "", area: "body", level: 1, status: "hidden", progress: 0, risk: 0, frozen: false };
 
 /**
  * Looks for all 20 cells in shader order (see cellIndex). Cells missing from the view draw as hidden.

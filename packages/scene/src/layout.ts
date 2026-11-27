@@ -83,3 +83,29 @@ export function athleteSpot(level: Level): [number, number, number] {
   const r = RING_OUTER[level - 1]! + (level === 1 ? 0.6 : 0.4);
   return groundPoint(r, 0);
 }
+
+/** Unit ground normal at (x, z), by central differences, written into `out` as [x, y, z]. */
+export function normalAt(x: number, z: number, out: [number, number, number] = [0, 0, 0], eps = 0.05): [number, number, number] {
+  const dx = (heightAt(x + eps, z) - heightAt(x - eps, z)) / (2 * eps);
+  const dz = (heightAt(x, z + eps) - heightAt(x, z - eps)) / (2 * eps);
+  const len = Math.hypot(dx, 1, dz);
+  out[0] = -dx / len;
+  out[1] = 1 / len;
+  out[2] = -dz / len;
+  return out;
+}
+
+/** Middle of a cell (an area's slice of a level ring) on the ground, as [x, y, z]. */
+export function cellCenter(area: AreaId, level: Exclude<Level, 5>, lift = 0): [number, number, number] {
+  const outer = RING_OUTER[level - 1]!;
+  const inner = RING_OUTER[level]!;
+  return groundPoint((outer + inner) / 2, sectorMidRad(area), lift);
+}
+
+/** Where a Resistance marker stands: just outside the 101 ring, inside its target area's slice. */
+export const RESISTANCE_RADIUS = 22.5;
+/** Offset from the start of the target sector, degrees (leaves the sector middle for the area itself). */
+export const RESISTANCE_SECTOR_OFFSET_DEG = 36;
+export function resistanceSpot(area: AreaId): [number, number, number] {
+  return groundPoint(RESISTANCE_RADIUS, ((SECTOR_START_DEG[area] + RESISTANCE_SECTOR_OFFSET_DEG) * Math.PI) / 180);
+}

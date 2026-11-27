@@ -6,6 +6,10 @@ dist/
 .DS_Store
 *.log
 
+# Next.js generated files
+next-env.d.ts
+*.tsbuildinfo
+
 # MakeHuman asset packs, fetched by assets/fetch_makehuman.sh (too large for git)
 assets/vendor/
 assets/blender/__pycache__/
