@@ -383,4 +383,11 @@ export interface SceneHandle {
   dispose(): void;
 }
 
-export type CreateScene = (container: HTMLElement, options: { assetsBaseUrl: string }) => Promise<SceneHandle>;
+export type CreateScene = (
+  container: HTMLElement,
+  options: {
+    assetsBaseUrl: string;
+    /** Rendering quality. "auto" (default) measures the first frames and drops to "low" on slow devices. */
+    quality?: "auto" | "high" | "low";
+  },
+) => Promise<SceneHandle>;
