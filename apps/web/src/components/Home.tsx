@@ -23,6 +23,8 @@ import { Toasts, type ToastItem } from "./Toasts";
 
 const TOAST_MS = 4600;
 const EVENT_GAP_MS = 700;
+/** Matches the CSS breakpoint where the side sheet docks to the right. */
+const SIDE_SHEET_QUERY = "(min-width: 900px)";
 
 type DetailSheet =
   | { kind: "area"; area: AreaId; level?: Level }
@@ -211,6 +213,35 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
     [adapter],
   );
 
+  // The athlete sheet leaves room for the athlete: tell the scene what the sheet covers, then frame him.
+  const athleteOpen = sheet?.kind === "athlete";
+  useEffect(() => {
+    const s = scene.current;
+    if (!athleteOpen) {
+      s?.setInsets?.({ top: 0, right: 0, bottom: 0, left: 0 });
+      return;
+    }
+    const frame = () => {
+      const panel = document.querySelector<HTMLElement>("section.sheet.side");
+      const hud = document.querySelector<HTMLElement>("header.hud");
+      if (!panel) return;
+      const wide = matchMedia(SIDE_SHEET_QUERY).matches;
+      scene.current?.setInsets?.({
+        top: hud?.offsetHeight ?? 0,
+        right: wide ? panel.offsetWidth : 0,
+        bottom: wide ? 0 : panel.offsetHeight,
+        left: 0,
+      });
+      scene.current?.focus({ kind: "athlete" });
+    };
+    const raf = requestAnimationFrame(frame);
+    window.addEventListener("resize", frame);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", frame);
+    };
+  }, [athleteOpen]);
+
   const canEdit = useMemo(() => (state ? adapter.canEditPlan(state) : false), [adapter, state]);
 
   const closed = !!game && game.closedOn === game.date;
@@ -332,7 +363,12 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
         />
       ) : null}
       {state && game ? (
-        <Sheet open={!!sheet && sheet.kind !== "checkin"} title={detail ? sheetTitle(detail, state) : "Details"} onClose={closeSheet}>
+        <Sheet
+          open={!!sheet && sheet.kind !== "checkin"}
+          title={detail ? sheetTitle(detail, state) : "Details"}
+          onClose={closeSheet}
+          {...(detail?.kind === "athlete" ? { variant: "side" as const } : {})}
+        >
           {detail?.kind === "area" ? (
             <AreaSheetBody
               state={state}

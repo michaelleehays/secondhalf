@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { GameState, Goal, Level, PlanEdit } from "@second-half/contracts";
-import { AREA_META } from "@/lib/labels";
+import { AREA_META, STATUS_COLOR } from "@/lib/labels";
 import { KIND_LABEL, ladder, MAX_LEVEL_NAME, MAX_VISION, renameLevelEdit } from "@/lib/plan";
 import { goalStatusText } from "@/lib/coach";
 import type { RulesConfig } from "@second-half/contracts";
@@ -83,7 +83,7 @@ export function LevelsScreen({ state, rules, canEdit, onBack, onGoal, apply, sav
               <ul className="goals">
                 {r.goals.map((g) => (
                   <li key={g.id}>
-                    <button className="goal" style={{ "--c": AREA_META[g.area].color } as CSSProperties} onClick={() => onGoal(g)}>
+                    <button className="goal" style={{ "--c": STATUS_COLOR[g.status] } as CSSProperties} onClick={() => onGoal(g)}>
                       <span className="tag">
                         {AREA_META[g.area].name} · {KIND_LABEL[g.kind]}
                       </span>
