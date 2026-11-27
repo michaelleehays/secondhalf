@@ -11,7 +11,10 @@ import { createScene } from "../src/index";
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 let state: GameState = structuredClone(SAMPLE_STATE);
 
-const scene = await createScene($("scene"), { assetsBaseUrl: "" });
+// ?quality=auto|high|low (default auto). The chosen level shows on the canvas as data-quality.
+const q = new URLSearchParams(location.search).get("quality");
+const quality = q === "high" || q === "low" ? q : "auto";
+const scene = await createScene($("scene"), { assetsBaseUrl: "", quality });
 const render = () => {
   scene.update(toWorldView(state));
   $<HTMLInputElement>("health").value = String(state.character.health);

@@ -85,6 +85,8 @@ export function createResistanceLayer(): ResistanceLayer {
   const uTime = { value: 0 };
 
   const markers = new Map<ResistanceId, Marker>();
+  /** Same markers as an array, for the per-frame loop (iterating a Map allocates). */
+  const markerList: Marker[] = [];
   const hitProxies: THREE.Object3D[] = [];
 
   function marker(id: ResistanceId): Marker {
@@ -111,6 +113,7 @@ export function createResistanceLayer(): ResistanceLayer {
     hitProxies.push(proxy);
     m = { id, group: g, crystal, ring, glow, proxy, line: null, lineKey: "", level: 0, levelGoal: 0, strike: 0, phase: markers.size * 1.3 };
     markers.set(id, m);
+    markerList.push(m);
     return m;
   }
 
@@ -187,7 +190,8 @@ export function createResistanceLayer(): ResistanceLayer {
     },
     tick(time, dt) {
       uTime.value = time;
-      for (const m of markers.values()) {
+      for (let i = 0; i < markerList.length; i++) {
+        const m = markerList[i]!;
         if (!m.group.visible) continue;
         m.level += (m.levelGoal - m.level) * (1 - Math.pow(0.05, dt));
         m.strike = Math.max(0, m.strike - dt * 1.5);

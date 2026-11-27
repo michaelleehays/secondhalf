@@ -152,7 +152,7 @@ export function emptyPose(): Pose {
 
 /** Builds the full pose for this frame into `out` (allocated when omitted). */
 export function poseAt(input: PoseInput, out: Pose = emptyPose()): Pose {
-  for (const b of POSED_BONES) set(out.bones[b], 0, 0, 0);
+  for (let i = 0; i < POSED_BONES.length; i++) set(out.bones[POSED_BONES[i]!], 0, 0, 0);
   set(out.hips, 0, 0, 0);
   set(out.root, 0, 0, 0);
   out.lift = 0;
@@ -198,11 +198,23 @@ export function poseAt(input: PoseInput, out: Pose = emptyPose()): Pose {
   return out;
 }
 
+/** Each layer's bones as a flat list, built once, so the per-frame loop doesn't enumerate keys. */
+const LAYER_BONES = new WeakMap<PoseLayer, { bone: PosedBone; e: Euler3In }[]>();
+function layerBones(layer: PoseLayer) {
+  let list = LAYER_BONES.get(layer);
+  if (!list) {
+    list = (Object.keys(layer.bones) as PosedBone[]).map((bone) => ({ bone, e: layer.bones[bone]! }));
+    LAYER_BONES.set(layer, list);
+  }
+  return list;
+}
+
 function add(out: Pose, layer: PoseLayer, w: number) {
   if (w <= 0) return;
-  for (const k in layer.bones) {
-    const e = layer.bones[k as PosedBone]!;
-    addTo(out.bones[k as PosedBone], e[0] * w, e[1] * w, e[2] * w);
+  const list = layerBones(layer);
+  for (let i = 0; i < list.length; i++) {
+    const { bone, e } = list[i]!;
+    addTo(out.bones[bone], e[0] * w, e[1] * w, e[2] * w);
   }
   if (layer.hips) addTo(out.hips, layer.hips[0] * w, layer.hips[1] * w, layer.hips[2] * w);
   if (layer.root) addTo(out.root, layer.root[0] * w, layer.root[1] * w, layer.root[2] * w);
