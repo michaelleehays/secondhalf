@@ -84,6 +84,58 @@ line marches from the marker to that cell. Tapping a marker reports `{ kind: "re
 The athlete walks to the edge of the current level's ring in the Body slice whenever `level`
 changes. Per-cell effects find their cell through `CellView.goalId`.
 
+## Performance and quality
+
+`createScene(container, { assetsBaseUrl, quality })` takes an optional `quality`: `"auto"` (default),
+`"high"` or `"low"`. It is a scene-package extension; the contract's `CreateScene` doesn't list it yet.
+
+| | high | low |
+| --- | --- | --- |
+| Pixel ratio | `min(dpr, 2)` on phones, `min(dpr, 1.75)` on desktop | half of high, never below 1 |
+| Terrain mesh | 160 (phone) / 230 (desktop) segments | 96 segments |
+| Terrain shading | physically based (standard) | Lambert |
+| Rim light, summit and event point lights | on | off (ambient raised a little) |
+| Contact shadow under the athlete | on | off |
+| Multisampling | on, except phones on auto | off |
+
+`auto` starts high and drops to low once if, after 10 warm-up frames, the next 60 average under
+30 fps, or the first 15 average under 20 fps (so a slow phone doesn't sit through seconds of slow
+frames). The chosen level is on the canvas as `data-quality`. There are no shadow maps at any level.
+
+Rendering stops while the tab is hidden (`visibilitychange`) or the container is off-screen
+(`IntersectionObserver`), and resumes without a time jump.
+
+The per-frame loop creates no objects: per-frame numbers live in a `Float64Array`, loops over maps
+use arrays, and poses, shots, normals and colours are written into reused objects. Checked with
+the DevTools heap sampler (inlining off, 5 s at each quality): what remains under the scene's own
+frame function averages under 16 bytes a frame, which is V8 number boxing, not objects; the rest
+is inside three.js's renderer.
+
+Textures: colour maps (`map`, `emissiveMap`, sheen and specular colour) are set to sRGB, every other
+texture slot to linear, with anisotropic filtering up to 8x. The model's own materials are kept,
+so textures in the GLB apply as they are.
+
+### Measured frame rate
+
+`node packages/scene/demo/perf.cjs <demo url>` with the demo running. Mid-range Android proxy:
+390x844 touch viewport at devicePixelRatio 3 (so the scene loads `athlete_mobile.glb`), CPU
+throttled 4x through the DevTools protocol, 3 s warm-up, then 8 s of `requestAnimationFrame`
+intervals with the athlete in view.
+
+| Quality | Chose | Average | Median | p95 |
+| --- | --- | --- | --- | --- |
+| auto | low | 35.0 fps | 33.3 ms | 33.4 ms |
+| high | high | 6.1 fps | 167 ms | 183 ms |
+| low | low | 37.2 fps | 33.3 ms | 33.4 ms |
+
+Runs vary by a few fps (an earlier run gave auto 33.6, high 5.5, low 31.7).
+
+Headless Chromium draws WebGL with SwiftShader, a software GPU that CPU throttling does not slow.
+A CPU profile of the low run shows the scene's JavaScript at about 5% of samples; the frame is
+bound by SwiftShader's pixel work. So these numbers say low quality's pixel cost is about 6x
+lower than high's, and that the JavaScript has room under a 4x slower CPU. They are not a
+measurement of a phone GPU; a real mid-range Android device should be checked before launch.
+
 ## Not yet
 
 HTML labels, and a kit API (the contract has no kit field yet).

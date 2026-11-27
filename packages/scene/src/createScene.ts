@@ -8,10 +8,20 @@ import { CameraRig } from "./camera";
 import { RING_OUTER, athleteSpot, cellIndex, heightAt, normalAt, ringAt, sectorAt } from "./layout";
 import { AREA_HEX, WORLD_HEX } from "./palette";
 import { createResistanceLayer, type AttackTarget } from "./resistance";
-import { createTerrain } from "./terrain";
+import { AutoQuality, qualitySettings, type Quality, type QualityLevel } from "./quality";
+import { createTerrain, type Terrain } from "./terrain";
 import { Walker } from "./walker";
 
 type Selection = SceneTarget & { level?: Level };
+
+/**
+ * createScene options. `quality` is a scene-package extension of the contract's options
+ * (default "auto"); see quality.ts.
+ */
+export interface SceneOptions {
+  assetsBaseUrl: string;
+  quality?: Quality;
+}
 
 /** Pointer travel (px) beyond which a press counts as a drag, not a tap. */
 const DRAG_PX = 6;
@@ -25,13 +35,21 @@ const YAW_PER_PX = 0.004;
  * `assetsBaseUrl` is where the repo's `assets/` folder is served: the athlete loads from
  * `${assetsBaseUrl}/models/athlete.glb` (or `athlete_mobile.glb` on phones). The returned promise
  * resolves as soon as the terrain is ready; the athlete appears when its model has loaded.
+ *
+ * Rendering pauses while the tab is hidden or the container is scrolled out of view.
  */
-export const createScene: CreateScene = async (container, options) => {
+export const createScene = async (container: HTMLElement, options: SceneOptions): Promise<SceneHandle> => {
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const phone = matchMedia("(pointer: coarse)").matches;
-  const maxPixelRatio = phone ? 2 : 1.75;
+  const requested: Quality = options.quality ?? "auto";
+  let quality: QualityLevel = requested === "low" ? "low" : "high";
+  const auto = requested === "auto" ? new AutoQuality() : null;
+  const device = () => ({ dpr: window.devicePixelRatio || 1, phone });
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+  // Multisampling is fixed at creation. Phones on auto skip it: their dense screens hide most
+  // aliasing, and it is the first thing a slow GPU pays for.
+  const antialias = requested === "high" || (requested === "auto" && !phone);
+  const renderer = new THREE.WebGLRenderer({ antialias, powerPreference: "high-performance" });
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
   const canvas = renderer.domElement;
@@ -61,7 +79,10 @@ export const createScene: CreateScene = async (container, options) => {
   const flashLight = new THREE.PointLight(0xff3030, 0, 8, 1);
   scene.add(flashLight);
 
-  const terrain = createTerrain({ segments: phone ? 160 : 230 });
+  let terrain: Terrain = (() => {
+    const q = qualitySettings(quality, device());
+    return createTerrain({ segments: q.terrainSegments, shading: q.terrainShading });
+  })();
   scene.add(terrain.mesh, terrain.extras);
   const resistance = createResistanceLayer();
   scene.add(resistance.group);
@@ -82,8 +103,8 @@ export const createScene: CreateScene = async (container, options) => {
   }
   let athlete: Athlete | null = null;
 
-  /** Fixed tap targets. Resistance markers appear with the first view, so pick() adds them per tap. */
-  const pickable: THREE.Object3D[] = [terrain.mesh, terrain.summit];
+  /** Tap targets other than the terrain. Resistance markers appear with the first view, so pick() adds them per tap. */
+  const pickable: THREE.Object3D[] = [];
 
   let view: WorldView | null = null;
   let disposed = false;
@@ -93,7 +114,7 @@ export const createScene: CreateScene = async (container, options) => {
     .loadAsync(athleteModelUrl(options.assetsBaseUrl, phone))
     .then((gltf) => {
       if (disposed) return;
-      athlete = createAthlete(gltf.scene);
+      athlete = createAthlete(gltf.scene, { maxAnisotropy: renderer.capabilities.getMaxAnisotropy() });
       athleteRoot.add(athlete.root);
       pickable.unshift(athlete.hitProxy);
       if (view) athlete.setView(view.athlete);
@@ -107,7 +128,7 @@ export const createScene: CreateScene = async (container, options) => {
     const w = Math.max(1, container.clientWidth);
     const h = Math.max(1, container.clientHeight);
     // Re-applied here so moving the window to a screen with a different density stays sharp.
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, maxPixelRatio));
+    renderer.setPixelRatio(qualitySettings(quality, device()).pixelRatio);
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -115,6 +136,30 @@ export const createScene: CreateScene = async (container, options) => {
   const ro = new ResizeObserver(resize);
   ro.observe(container);
   resize();
+
+  /* ---------- quality ---------- */
+  function applyQuality(level: QualityLevel, rebuildTerrain: boolean) {
+    quality = level;
+    const q = qualitySettings(level, device());
+    canvas.dataset.quality = level;
+    flashLight.visible = q.pointLights;
+    rim.visible = q.rimLight;
+    // Without the rim light the back of the mountain goes black; lift the ambient a little instead.
+    hemi.intensity = q.rimLight ? 1.6 : 2.1;
+    terrain.summitLight.visible = q.pointLights;
+    marker.setShadow(q.contactShadow);
+    if (rebuildTerrain && (terrain.segments !== q.terrainSegments || terrain.shading !== q.terrainShading)) {
+      const old = terrain;
+      terrain = createTerrain({ segments: q.terrainSegments, shading: q.terrainShading });
+      if (view) terrain.setCells(view.cells);
+      terrain.summitLight.visible = q.pointLights;
+      scene.remove(old.mesh, old.extras);
+      scene.add(terrain.mesh, terrain.extras);
+      old.dispose();
+    }
+    resize();
+  }
+  applyQuality(quality, false);
 
   /* ---------- input: drag to turn, tap to select ---------- */
   const selectCbs: ((t: Selection) => void)[] = [];
@@ -149,7 +194,7 @@ export const createScene: CreateScene = async (container, options) => {
     const r = canvas.getBoundingClientRect();
     ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
-    const hit = ray.intersectObjects([...pickable, ...resistance.hitProxies], false)[0];
+    const hit = ray.intersectObjects([terrain.mesh, terrain.summit, ...pickable, ...resistance.hitProxies], false)[0];
     if (!hit) return null;
     if (athlete && hit.object === athlete.hitProxy) return { kind: "athlete" };
     const resistanceId = hit.object.userData.resistance as ResistanceId | undefined;
@@ -169,7 +214,7 @@ export const createScene: CreateScene = async (container, options) => {
   /* ---------- events ---------- */
   const FLASH_OFFSET = new THREE.Vector3(0, 2, 2);
   function flash(color: number, intensity: number) {
-    if (reduceMotion) return;
+    if (reduceMotion || !flashLight.visible) return;
     flashLight.color.setHex(color);
     flashLight.position.copy(athleteRoot.position).add(FLASH_OFFSET);
     flashLight.intensity = intensity;
@@ -250,28 +295,48 @@ export const createScene: CreateScene = async (container, options) => {
 
   /* ---------- loop ---------- */
   let raf = 0;
-  /** rAF timestamps (ms) of the first and the previous frame; null until the first frame. */
-  let startMs: number | null = null;
-  let lastMs = 0;
+  /**
+   * Per-frame numbers live in a typed array: V8 boxes a double held in a closure variable on every
+   * write, which would allocate each frame.
+   * [0] previous rAF timestamp (ms), [1] scene time (s, advances only while rendering, so a pause
+   * doesn't jump animations), [2] Recovery light 0..1, eased toward recoveryGoal.
+   */
+  const clock = new Float64Array(3);
+  const LAST_MS = 0;
+  const SCENE_T = 1;
+  const RECOVERY = 2;
+  /** True until the first frame after a (re)start, which only sets the clock. */
+  let restarting = true;
+  /** Paused while the tab is hidden or the container is off-screen. */
+  let pageVisible = document.visibilityState !== "hidden";
+  let onScreen = true;
   let first = true;
-  /** 0 normal light .. 1 the cooler Recovery light, eased toward recoveryGoal. */
-  let recovery = 0;
   let recoveryGoal = 0;
   const frame = (now: number) => {
     raf = requestAnimationFrame(frame);
-    if (startMs === null) startMs = lastMs = now;
+    if (restarting) {
+      clock[LAST_MS] = now;
+      restarting = false;
+    }
     // Clamp to [0, 50 ms]: a negative or NaN step would poison every eased value downstream.
-    const step = (now - lastMs) / 1000;
-    lastMs = now;
-    const dt = step > 0 ? Math.min(0.05, step) : 0;
-    const t = reduceMotion ? 0 : (now - startMs) / 1000;
+    const stepMs = now - clock[LAST_MS]!;
+    clock[LAST_MS] = now;
+    const dt = stepMs > 0 ? Math.min(0.05, stepMs / 1000) : 0;
+    clock[SCENE_T] = clock[SCENE_T]! + dt;
+    const t = reduceMotion ? 0 : clock[SCENE_T]!;
+    if (auto) {
+      const decided = auto.frame(stepMs);
+      if (decided === "low") applyQuality("low", true);
+      else if (decided === "high") canvas.dataset.quality = "high";
+    }
     terrain.tick(t, dt);
     resistance.tick(t, dt);
     burst.tick(dt);
     walker.step(dt);
     athleteRoot.position.set(walker.x, heightAt(walker.x, walker.z), walker.z);
     marker.tick(t, athleteRoot.position);
-    recovery += (recoveryGoal - recovery) * (1 - Math.pow(0.1, dt));
+    clock[RECOVERY] = clock[RECOVERY]! + (recoveryGoal - clock[RECOVERY]!) * (1 - Math.pow(0.1, dt));
+    const recovery = clock[RECOVERY]!;
     hemi.color.lerpColors(LIGHT_COLORS.hemiWarm, LIGHT_COLORS.hemiCool, recovery);
     sun.color.lerpColors(LIGHT_COLORS.sunWarm, LIGHT_COLORS.sunCool, recovery);
     sun.intensity = 2.6 - 0.6 * recovery;
@@ -290,7 +355,36 @@ export const createScene: CreateScene = async (container, options) => {
     first = false;
     renderer.render(scene, camera);
   };
-  raf = requestAnimationFrame(frame);
+  const running = () => raf !== 0;
+  function start() {
+    if (disposed || running() || !pageVisible || !onScreen) return;
+    restarting = true; // the next frame restarts the clock, so the pause isn't one long step
+    auto?.reset();
+    raf = requestAnimationFrame(frame);
+  }
+  function stop() {
+    if (!running()) return;
+    cancelAnimationFrame(raf);
+    raf = 0;
+  }
+  const onVisibility = () => {
+    pageVisible = document.visibilityState !== "hidden";
+    if (pageVisible) start();
+    else stop();
+  };
+  document.addEventListener("visibilitychange", onVisibility);
+  const io =
+    typeof IntersectionObserver === "undefined"
+      ? null
+      : new IntersectionObserver((entries) => {
+          const e = entries[entries.length - 1];
+          if (!e) return;
+          onScreen = e.isIntersecting;
+          if (onScreen) start();
+          else stop();
+        });
+  io?.observe(container);
+  start();
 
   const handle: SceneHandle = {
     update(next) {
@@ -305,7 +399,7 @@ export const createScene: CreateScene = async (container, options) => {
       if (firstView || reduceMotion) walker.place(x, z);
       else walker.setGoal(x, z);
       recoveryGoal = next.inRecovery ? 1 : 0;
-      if (firstView) recovery = recoveryGoal;
+      if (firstView) clock[RECOVERY] = recoveryGoal;
       athlete?.setView(next.athlete);
     },
     play(event) {
@@ -326,7 +420,9 @@ export const createScene: CreateScene = async (container, options) => {
     dispose() {
       if (disposed) return;
       disposed = true;
-      cancelAnimationFrame(raf);
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+      io?.disconnect();
       ro.disconnect();
       canvas.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointermove", onMove);
@@ -345,6 +441,10 @@ export const createScene: CreateScene = async (container, options) => {
   };
   return handle;
 };
+
+// The scene still satisfies the contract's CreateScene; `quality` is an optional extra.
+const _contract: CreateScene = createScene;
+void _contract;
 
 
 
@@ -398,6 +498,9 @@ function createMarker() {
   const n: [number, number, number] = [0, 0, 0];
   return {
     group,
+    setShadow(on: boolean) {
+      shadow.visible = on;
+    },
     /** `at` is the marker's world position; the ring and shadow tilt to lie flat on the slope. */
     tick(t: number, at: THREE.Vector3) {
       ringMat.opacity = 0.5 + 0.35 * Math.sin(t * 3);

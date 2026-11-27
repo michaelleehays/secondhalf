@@ -11,10 +11,15 @@ import { AREA_HEX, WORLD_HEX } from "./palette";
  */
 export interface Terrain {
   mesh: THREE.Mesh;
+  /** Grid segments per side this terrain was built with. */
+  segments: number;
+  shading: "standard" | "lambert";
   /** Ring and sector guide lines plus the summit beacon. */
   extras: THREE.Group;
   /** The beacon above the summit (tap target for The Vision). */
   summit: THREE.Object3D;
+  /** Point light at the summit; hidden at low quality. */
+  summitLight: THREE.Object3D;
   setCells(cells: readonly CellView[]): void;
   /** One-off cell effects for events, by cell index (see cellIndex). They fade on their own. */
   flashCell(index: number, color: THREE.Color, amount?: number): void;
@@ -29,6 +34,8 @@ export interface Terrain {
 export interface TerrainOptions {
   /** Grid segments per side. Lower on phones. */
   segments: number;
+  /** "lambert" is cheaper per pixel than "standard" (physically based); used at low quality. */
+  shading?: "standard" | "lambert";
 }
 
 const SIZE = 64;
@@ -157,7 +164,10 @@ export function createTerrain(opts: TerrainOptions): Terrain {
   const uFx = { value: Array.from({ length: CELL_COUNT }, () => new THREE.Vector4(0, 0, 0, 0)) };
   const uFx2 = { value: Array.from({ length: CELL_COUNT }, () => new THREE.Vector4(0, 0, 0, 0)) };
 
-  const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
+  const material =
+    opts.shading === "lambert"
+      ? new THREE.MeshLambertMaterial({ vertexColors: true })
+      : new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = uTime;
     shader.uniforms.uFill = uFill;
@@ -171,7 +181,7 @@ export function createTerrain(opts: TerrainOptions): Terrain {
       .replace("#include <common>", `#include <common>\n${SHADER_COMMON}\n${SHADER_FRAG_DEFS}`)
       .replace("#include <color_fragment>", `#include <color_fragment>\n${SHADER_CELLS}`);
   };
-  material.customProgramCacheKey = () => "second-half-terrain";
+  material.customProgramCacheKey = () => `second-half-terrain-${opts.shading ?? "standard"}`;
 
   const mesh = new THREE.Mesh(geo, material);
   mesh.name = "terrain";
@@ -191,11 +201,15 @@ export function createTerrain(opts: TerrainOptions): Terrain {
 
   const extras = buildExtras();
   const summit = extras.getObjectByName("summit")!;
+  const summitLight = extras.getObjectByName("summit-light")!;
 
   return {
     mesh,
+    segments: opts.segments,
+    shading: opts.shading ?? "standard",
     extras,
     summit,
+    summitLight,
     setCells,
     flashCell(i, color, amount = 1) {
       const v = uFx.value[i];
@@ -281,6 +295,7 @@ function buildExtras(): THREE.Group {
   beacon.position.set(0, heightAt(0, 0) + 1.2, 0);
   group.add(beacon);
   const glow = new THREE.PointLight(0xffc870, 1.2, 10, 1);
+  glow.name = "summit-light";
   glow.position.copy(beacon.position);
   group.add(glow);
   return group;
