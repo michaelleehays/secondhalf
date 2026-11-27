@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { CheckInResult, GameState, Habit, RulesConfig } from "@second-half/contracts";
 import type { Draft, DraftAction } from "@/lib/checkin";
 import { unanswered } from "@/lib/checkin";
@@ -53,7 +53,7 @@ export function CheckInSheet({ open, state, rules, habits, draft, dispatch, busy
         const entry = draft[h.id];
         const area = AREA_META[h.area];
         return (
-          <article key={h.id} className="card" style={{ "--c": area.color } as CSSProperties} aria-label={h.title}>
+          <article key={h.id} className="card" aria-label={h.title}>
             <div>
               <span className="tag">{area.name}</span>
               <b className="title">{h.title}</b>

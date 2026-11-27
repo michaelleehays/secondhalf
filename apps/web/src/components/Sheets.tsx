@@ -1,10 +1,11 @@
 "use client";
 
-import type { CSSProperties } from "react";
-import type { AreaId, GameEvent, GameState, IsoDate, Level, ResistanceId, RulesConfig } from "@second-half/contracts";
-import { areaView, athleteView, MODE_LABEL, resistanceView, visionView } from "@/lib/coach";
+import { useState, type CSSProperties } from "react";
+import type { AreaId, GameEvent, GameState, Goal, IsoDate, Level, ResistanceId, RulesConfig } from "@second-half/contracts";
+import { areaView, athleteView, goalDetail, goalPhase, MODE_LABEL, resistanceView, visionView } from "@/lib/coach";
 import { shortDate } from "@/lib/dates";
-import { AREA_META, RESISTANCE_META, levelCode } from "@/lib/labels";
+import { AREA_META, RESISTANCE_META, STATUS_COLOR, levelCode } from "@/lib/labels";
+import { readyToVerify } from "@/lib/plan";
 import { Coach } from "./CheckInSheet";
 
 const style = (vars: Record<string, string>) => vars as CSSProperties;
@@ -27,6 +28,8 @@ export function AreaSheetBody({
   rules,
   events,
   onResistance,
+  onVerify,
+  busy,
 }: {
   state: GameState;
   area: AreaId;
@@ -34,53 +37,100 @@ export function AreaSheetBody({
   rules: RulesConfig;
   events: readonly GameEvent[];
   onResistance: (id: ResistanceId) => void;
+  onVerify: (goalId: string, note: string) => void;
+  busy: boolean;
 }) {
   const v = areaView(state, area, rules, events, level);
+  const start = v.rows.find((r) => r.current)?.goal.level ?? v.rows[0]?.goal.level ?? 1;
+  const [picked, setPicked] = useState<Level>(start);
+  // A new tap on the map (another level) re-opens on that level.
+  const [lastStart, setLastStart] = useState(start);
+  if (start !== lastStart) {
+    setLastStart(start);
+    setPicked(start);
+  }
+  const row = v.rows.find((r) => r.goal.level === picked) ?? v.rows[0];
   const res = Object.values(state.resistance).find((r) => r.targetArea === area);
+  if (!row) return <p className="muted">No goals in {v.name} yet.</p>;
+  const d = goalDetail(state, row.goal, rules, events);
+  const color = STATUS_COLOR[row.goal.status];
+
   return (
     <>
-      <Coach>{v.coach}</Coach>
-      {v.rows.map((row) => (
-        <article
-          key={row.goal.id}
-          className={`card${row.current ? " current" : ""}`}
-          style={style({ "--c": row.current ? v.color : "var(--line)" })}
-          aria-current={row.current ? "true" : undefined}
-        >
-          <div className="top">
-            <div>
-              <span className="tag" style={style({ "--c": v.color })}>
-                {row.tag}
-              </span>
-              <b className={`title${row.goal.status === "hidden" ? " muted" : ""}`}>{row.title}</b>
-            </div>
-            <span className={`small status ${row.tone}`}>{row.status}</span>
-          </div>
-          {row.fill !== null ? (
-            <Bar value={row.fill} color={row.tone === "risk" ? "var(--risk)" : row.tone === "muted" ? "var(--muted)" : v.color} label={`${row.tag} progress`} />
-          ) : null}
-        </article>
-      ))}
-      <section className="card plain" aria-label={`${v.name} habits`}>
+      <div className="levels-tabs" role="tablist" aria-label={`${v.name} levels`}>
+        {v.rows.map((r) => (
+          <button
+            key={r.goal.id}
+            role="tab"
+            aria-selected={r.goal.level === picked}
+            aria-controls="area-detail"
+            className={`phase-${goalPhase(r.goal, state)}`}
+            onClick={() => setPicked(r.goal.level)}
+          >
+            <b>{levelCode(r.goal.level)}</b>
+            <span>{r.status}</span>
+          </button>
+        ))}
+      </div>
+      <Coach>{d.coach}</Coach>
+      <article id="area-detail" role="tabpanel" className={`card detail phase-${d.phase}`} style={style({ "--c": color })}>
         <div className="top">
-          <b>Habits</b>
-          <span className="small muted">{v.mode} this season</span>
+          <span className="tag">
+            {d.label} · {d.kind}
+          </span>
+          <span className="small status">{d.heading}</span>
         </div>
-        {v.habits.length ? (
-          <ul className="list">
-            {v.habits.map((h) => (
-              <li key={h.id}>
-                <span>{h.title}</span>
-                <span className="small muted">
-                  {h.weeklyTarget[state.modes[area]]}× a week · min: {h.minimumDose}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="small muted">No habits feed {v.name} yet.</p>
-        )}
-      </section>
+        <b className="title big">{d.title}</b>
+        {row.fill !== null && d.phase !== "future" ? <Bar value={row.fill} color={color} label={`${d.label} progress`} /> : null}
+        <dl className="facts">
+          {d.facts.map((f) => (
+            <div key={f.label}>
+              <dt>{f.label}</dt>
+              <dd>{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+        {readyToVerify(row.goal, rules.progress.milestoneVerifyAt) ? <VerifyRow goal={row.goal} busy={busy} onVerify={onVerify} /> : null}
+      </article>
+      {d.momentsTitle ? (
+        <section className="card plain" aria-label={d.momentsTitle}>
+          <b>{d.momentsTitle}</b>
+          {d.moments.length ? (
+            <ol className="moments">
+              {d.moments.map((m, i) => (
+                <li key={`${m.date}-${i}`}>
+                  <span className="mono small muted">{m.date}</span>
+                  <span>{m.label}</span>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="small muted">{d.phase === "past" ? "Nothing logged here yet." : "None lately. Keep it that way."}</p>
+          )}
+        </section>
+      ) : null}
+      {d.phase !== "future" ? (
+        <section className="card plain" aria-label={`${v.name} habits`}>
+          <div className="top">
+            <b>Habits</b>
+            <span className="small muted">{v.mode} this season</span>
+          </div>
+          {v.habits.length ? (
+            <ul className="list">
+              {v.habits.map((h) => (
+                <li key={h.id}>
+                  <span>{h.title}</span>
+                  <span className="small muted">
+                    {h.weeklyTarget[state.modes[area]]}× a week · min: {h.minimumDose}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="small muted">No habits feed {v.name} yet.</p>
+          )}
+        </section>
+      ) : null}
       {res ? (
         <button className="btn row" onClick={() => onResistance(res.id)}>
           <span>
@@ -92,6 +142,41 @@ export function AreaSheetBody({
         </button>
       ) : null}
     </>
+  );
+}
+
+/** "I did it": the player confirms the real achievement behind a milestone at the verify mark. */
+function VerifyRow({ goal, busy, onVerify }: { goal: Goal; busy: boolean; onVerify: (goalId: string, note: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  if (!open)
+    return (
+      <div className="verify">
+        <p className="small">{goal.verification ? `Ready when you've done it: ${goal.verification}.` : "Ready when you've done the real thing."}</p>
+        <button className="btn primary" onClick={() => setOpen(true)}>
+          I did it
+        </button>
+      </div>
+    );
+  return (
+    <form
+      className="verify form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onVerify(goal.id, note.trim());
+      }}
+    >
+      <label htmlFor={`${goal.id}-note`}>Add a note (optional)</label>
+      <input id={`${goal.id}-note`} value={note} placeholder="e.g. 27:41 at the Turkey Trot" maxLength={140} onChange={(e) => setNote(e.target.value)} />
+      <div className="actions">
+        <button type="button" className="btn" onClick={() => setOpen(false)}>
+          Not yet
+        </button>
+        <button className="btn primary" disabled={busy}>
+          Lock it in
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -152,7 +237,7 @@ export function AthleteSheetBody({
 
 /* ---------- Vision ---------- */
 
-export function VisionSheetBody({ state, projected, date }: { state: GameState; projected: number; date: IsoDate }) {
+export function VisionSheetBody({ state, projected, date, onLevels }: { state: GameState; projected: number; date: IsoDate; onLevels: () => void }) {
   const v = visionView(state, projected, date);
   return (
     <>
@@ -161,9 +246,21 @@ export function VisionSheetBody({ state, projected, date }: { state: GameState; 
         <span className="tag" style={style({ "--c": "var(--gold)" })}>
           501 · {v.name}
         </span>
-        <b className="title">Written in your words</b>
-        <p className="small muted">You'll write your Vision when you design your levels. It sits at the summit and every ring below climbs toward it.</p>
+        {state.vision?.trim() ? (
+          <b className="title">{state.vision}</b>
+        ) : (
+          <>
+            <b className="title muted">Not written yet</b>
+            <p className="small muted">Your Vision is the life you're playing for, in your own words. Write it at the top of Your levels.</p>
+          </>
+        )}
       </article>
+      <button className="btn row" onClick={onLevels}>
+        <span>
+          <b>Your levels</b> · name them, set the goals and habits
+        </span>
+        <span aria-hidden="true">→</span>
+      </button>
       <article className="card plain">
         <dl className="figures">
           <div>
@@ -266,7 +363,7 @@ export function ResistanceSheetBody({
 }
 
 export const sheetTitle = (
-  t: { kind: "area"; area: AreaId } | { kind: "athlete" } | { kind: "vision" } | { kind: "resistance"; id: ResistanceId },
+  t: { kind: "area"; area: AreaId } | { kind: "athlete" } | { kind: "vision" } | { kind: "resistance"; id: ResistanceId } | { kind: "goal"; goalId: string },
   state: GameState,
 ): string => {
   switch (t.kind) {
@@ -278,5 +375,9 @@ export const sheetTitle = (
       return "The Vision";
     case "resistance":
       return RESISTANCE_META[t.id].name;
+    case "goal": {
+      const g = state.goals.find((x) => x.id === t.goalId);
+      return g ? `${AREA_META[g.area].name} ${levelCode(g.level)}` : "Goal";
+    }
   }
 };

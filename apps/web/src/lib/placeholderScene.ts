@@ -23,14 +23,18 @@ export const createPlaceholderScene: CreateScene = async (container) => {
   let frame = 0;
   let disposed = false;
 
+  let insets = { top: 0, right: 0, bottom: 0, left: 0 };
   const geom = () => {
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
-    // Leave room for the HUD on top and the dock at the bottom.
-    const cx = w / 2;
-    const cy = h * 0.5;
+    // Centre the map in the space the app's UI leaves free (setInsets), e.g. beside or above a sheet.
+    const fw = Math.max(1, w - insets.left - insets.right);
+    const fh = Math.max(1, h - insets.top - insets.bottom);
+    const inset = insets.top + insets.right + insets.bottom + insets.left > 0;
+    const cx = insets.left + fw / 2;
+    const cy = inset ? insets.top + fh / 2 : h * 0.5;
     // Keep the area labels, drawn just outside the rim, on screen at phone width.
-    const R = Math.max(60, Math.min(w / 2 - 56, h * 0.3));
+    const R = Math.max(40, Math.min(fw / 2 - 56, (inset ? fh / 2 - 30 : h * 0.3)));
     return { w, h, cx, cy, R, ring: (lv: number) => R * (1 - (lv - 1) * 0.2), vision: R * 0.2 };
   };
 
@@ -73,11 +77,12 @@ export const createPlaceholderScene: CreateScene = async (container) => {
         const outer = ring(lv);
         const inner = lv === 4 ? vision : ring(lv + 1);
         const status = cell?.status ?? "hidden";
-        const color = AREA_META[area].color;
+        // Monochrome like the 3D scene: ground is one tone, shaded by status. Only risk is coloured.
+        const color = GROUND;
         let alpha = 0.06;
         let fill = color;
-        if (status === "locked_in") alpha = 0.62;
-        else if (status === "in_progress") alpha = 0.18;
+        if (status === "locked_in") alpha = 0.42;
+        else if (status === "in_progress") alpha = 0.1;
         else if (status === "open") alpha = 0.1;
         else if (status === "at_risk") {
           fill = "#E5484D";
@@ -89,13 +94,13 @@ export const createPlaceholderScene: CreateScene = async (container) => {
         sector(ctx, cx, cy, inner, outer, a0, a1, fill, alpha * dim);
         if (status === "in_progress" && cell) {
           // Progress edge: the filled share of the slice, sweeping clockwise.
-          sector(ctx, cx, cy, inner, outer, a0, a0 + (a1 - a0) * cell.progress, color, 0.55 * dim);
+          sector(ctx, cx, cy, inner, outer, a0, a0 + (a1 - a0) * cell.progress, color, 0.32 * dim);
         }
         if (status === "open") dashedArc(ctx, cx, cy, (inner + outer) / 2, a0 + 0.05, a1 - 0.05, color);
       }
       // Area label on the outer rim.
       const mid = (a0 + a1) / 2;
-      ctx.fillStyle = AREA_META[area].color;
+      ctx.fillStyle = INK;
       ctx.globalAlpha = dim;
       ctx.font = "800 14px Archivo, system-ui, sans-serif";
       ctx.textAlign = "center";
@@ -222,6 +227,10 @@ export const createPlaceholderScene: CreateScene = async (container) => {
       else if (good.includes(event.type)) flash = { color: "rgba(255,170,60,.4)", start: performance.now() };
       schedule();
     },
+    setInsets(next) {
+      insets = { ...next };
+      schedule();
+    },
     focus(target) {
       focus = target;
       schedule();
@@ -242,6 +251,9 @@ export const createPlaceholderScene: CreateScene = async (container) => {
   };
   return handle;
 };
+
+const GROUND = "#D9D6CE";
+const INK = "#F1EFEA";
 
 function sector(ctx: CanvasRenderingContext2D, cx: number, cy: number, r0: number, r1: number, a0: number, a1: number, color: string, alpha: number) {
   if (a1 <= a0) return;

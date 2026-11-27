@@ -1,12 +1,25 @@
-import type { AreaId, Level, ResistanceId } from "@second-half/contracts";
+import type { AreaId, GoalStatus, Level, ResistanceId } from "@second-half/contracts";
 
-/** Display names and colors for the five areas. Colors match the home screen prototype. */
-export const AREA_META: Record<AreaId, { name: string; color: string }> = {
-  body: { name: "Body", color: "#58C27D" },
-  mind: { name: "Mind", color: "#9C8CF0" },
-  work: { name: "Work", color: "#4FA3E8" },
-  people: { name: "People", color: "#F08A5D" },
-  money: { name: "Money", color: "#E8C15A" },
+/**
+ * Display names for the five areas. Areas have no colour of their own: the scene is monochrome with
+ * carved section lines and labels, so the app names areas and colours only by status.
+ */
+export const AREA_META: Record<AreaId, { name: string }> = {
+  body: { name: "Body" },
+  mind: { name: "Mind" },
+  work: { name: "Work" },
+  people: { name: "People" },
+  money: { name: "Money" },
+};
+
+/** Status colours, as CSS custom properties from globals.css. */
+export const STATUS_COLOR: Record<GoalStatus, string> = {
+  locked_in: "var(--ok)",
+  in_progress: "var(--signal)",
+  at_risk: "var(--risk)",
+  lost: "var(--risk)",
+  open: "var(--muted)",
+  hidden: "var(--line)",
 };
 
 export const LEVEL_NAMES: Record<Level, string> = {

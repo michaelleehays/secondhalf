@@ -11,6 +11,7 @@ import {
   type RulesConfig,
   type StepResult,
 } from "@second-half/contracts";
+import { withJournal } from "./journal";
 import { withLevels } from "./levels";
 import { addDays, daysBetween } from "./resistance";
 import { maintenanceCap } from "./maintenance";
@@ -57,7 +58,7 @@ const missedBeyondGraceThisWeek = (goal: Goal, habits: Habit[], weekEnding: IsoD
  *
  * In Recovery, idle-area penalties (1) and risk escalation (3) are frozen; dividends still pay.
  */
-export function closeWeek(state: GameState, weekEnding: IsoDate, config: RulesConfig = DEFAULT_RULES): StepResult {
+function closeWeekStep(state: GameState, weekEnding: IsoDate, config: RulesConfig = DEFAULT_RULES): StepResult {
   const events: GameEvent[] = [];
   const mult = config.levelMultiplier[state.level];
 
@@ -149,4 +150,9 @@ export function closeWeek(state: GameState, weekEnding: IsoDate, config: RulesCo
   );
   const capped = maintenanceCap(result.state, config);
   return withAutoRecovery(capped ? { ...result, events: [...result.events, capped] } : result, weekEnding, config);
+}
+
+/** closeWeek with the step's notable moments added to `state.journal`. */
+export function closeWeek(state: GameState, weekEnding: IsoDate, config: RulesConfig = DEFAULT_RULES): StepResult {
+  return withJournal(state, closeWeekStep(state, weekEnding, config), weekEnding, config);
 }

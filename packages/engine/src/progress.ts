@@ -9,6 +9,7 @@ import {
   type RulesConfig,
   type StepResult,
 } from "@second-half/contracts";
+import { withJournal } from "./journal";
 import { withLevels } from "./levels";
 import { daysBetween } from "./resistance";
 
@@ -116,7 +117,7 @@ export function applyConsistentWeek(state: GameState, goals: Goal[], weekEnding:
  * and the goal locks in as soon as consistency carries it there. Already verified, held, system or unknown
  * goals are left as they are.
  */
-export function verifyAchievement(state: GameState, goalId: string, date: IsoDate, note?: string, config: RulesConfig = DEFAULT_RULES): StepResult {
+function verifyAchievementStep(state: GameState, goalId: string, date: IsoDate, note?: string, config: RulesConfig = DEFAULT_RULES): StepResult {
   const goal = state.goals.find((g) => g.id === goalId);
   if (!goal || goal.kind !== "milestone" || goal.verifiedOn) return { state, events: [] };
   if (goal.status === "locked_in" || goal.status === "at_risk" || goal.status === "hidden") return { state, events: [] };
@@ -129,4 +130,9 @@ export function verifyAchievement(state: GameState, goalId: string, date: IsoDat
   }
   const goals = state.goals.map((g) => (g.id === goalId ? next : g));
   return withLevels({ state: { ...state, goals, ...totals }, events }, config);
+}
+
+/** verifyAchievement with the step's notable moments added to `state.journal`. */
+export function verifyAchievement(state: GameState, goalId: string, date: IsoDate, note?: string, config: RulesConfig = DEFAULT_RULES): StepResult {
+  return withJournal(state, verifyAchievementStep(state, goalId, date, note, config), date, config);
 }

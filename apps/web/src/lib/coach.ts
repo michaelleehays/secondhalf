@@ -10,6 +10,7 @@ import {
   type RuleAdjustment,
   type RulesConfig,
 } from "@second-half/contracts";
+import { shortDate } from "./dates";
 import { daysLeft, levelName } from "./hud";
 import { AREA_META, RESISTANCE_META, fmt, levelCode } from "./labels";
 import { goalLabel } from "./messages";
@@ -43,7 +44,6 @@ export interface AreaRow {
 
 export interface AreaView {
   name: string;
-  color: string;
   mode: string;
   coach: string;
   rows: AreaRow[];
@@ -87,7 +87,6 @@ export function areaView(state: GameState, area: AreaId, rules: RulesConfig, eve
   });
   return {
     name: meta.name,
-    color: meta.color,
     mode: MODE_LABEL[state.modes[area]],
     coach: areaCoach(state, area, rules, events),
     rows,
@@ -250,5 +249,135 @@ export function resistanceView(state: GameState, id: ResistanceId, rules: RulesC
     plans,
     equippedCount: state.gamePlans.filter((p) => p.equipped).length,
     rules: state.rules.filter((x) => x.trigger === id),
+  };
+}
+
+/* ---------- One goal, by where it sits in time ---------- */
+
+export type GoalPhase = "past" | "current" | "future";
+
+export interface GoalDetail {
+  phase: GoalPhase;
+  /** "Locked in", "Working on it now", "Ahead of you" */
+  heading: string;
+  label: string;
+  title: string;
+  kind: string;
+  coach: string;
+  facts: { label: string; value: string }[];
+  momentsTitle: string;
+  moments: { date: string; label: string }[];
+}
+
+const MOMENTS_SHOWN = 6;
+
+export function goalPhase(goal: Goal, state: GameState): GoalPhase {
+  if (goal.status === "locked_in") return "past";
+  if (goal.status === "hidden" || goal.frozen || goal.level > state.level) return "future";
+  return "current";
+}
+
+/** Consistent weeks so far and needed, by the engine's rule: each consistent week moves 1/weeksToLockIn of the way. */
+export function consistentWeeks(goal: Goal, rules: RulesConfig): { done: number; total: number } {
+  const total = rules.progress.weeksToLockIn[goal.level];
+  const reach = goal.kind === "milestone" ? rules.progress.milestoneVerifyAt : 1;
+  const done = Math.min(total, Math.floor((goal.progress / reach) * total + 1e-9));
+  return { done, total };
+}
+
+const journalFor = (state: GameState, pick: (e: NonNullable<GameState["journal"]>[number]) => boolean) =>
+  (state.journal ?? []).filter(pick);
+
+export function goalDetail(state: GameState, goal: Goal, rules: RulesConfig, events: readonly GameEvent[]): GoalDetail {
+  const phase = goalPhase(goal, state);
+  const label = goalLabel(state, goal.id);
+  const kind = goal.kind === "milestone" ? "One-time" : "Ongoing";
+  const base = { phase, label, title: goal.title, kind };
+  const date = (d?: string) => (d ? shortDate(d) : "");
+
+  if (phase === "past") {
+    const weekly = Math.round(rules.points.dividendPerLevel * goal.level * rules.levelMultiplier[state.level]);
+    const facts = [
+      ...(goal.lockedInOn ? [{ label: "Locked in", value: date(goal.lockedInOn) }] : []),
+      ...(goal.verifiedOn ? [{ label: "Verified", value: date(goal.verifiedOn) }] : []),
+      { label: "Pays", value: `+${fmt(weekly)} points a week` },
+      ...(goal.kind === "milestone"
+        ? [{ label: "Quarterly check", value: goal.lastQuarterlyCheck ? `Passed ${date(goal.lastQuarterlyCheck)}` : "Not done yet" }]
+        : [{ label: "Upkeep", value: "One weekly habit at its minimum" }]),
+      ...(goal.verification ? [{ label: "What proved it", value: goal.verification }] : []),
+    ];
+    let moments = journalFor(state, (e) => e.goalId === goal.id).map((e) => ({ date: e.date, label: e.label }));
+    if (!moments.length) {
+      moments = [
+        ...(goal.verifiedOn ? [{ date: goal.verifiedOn, label: "Real achievement logged" }] : []),
+        ...(goal.lockedInOn ? [{ date: goal.lockedInOn, label: `${label} locked in` }] : []),
+      ];
+    }
+    return {
+      ...base,
+      heading: "Locked in",
+      coach: `${label} is yours${goal.lockedInOn ? ` since ${date(goal.lockedInOn)}` : ""}. It pays +${fmt(weekly)} points a week as long as you keep moving.`,
+      facts,
+      momentsTitle: "Moments",
+      moments: moments.slice(-MOMENTS_SHOWN).reverse().map((m) => ({ date: date(m.date), label: m.label })),
+    };
+  }
+
+  if (phase === "current") {
+    const { done, total } = consistentWeeks(goal, rules);
+    const ready = goal.kind === "milestone" && goal.progress >= rules.progress.milestoneVerifyAt;
+    const weeksLeft = total - done;
+    const facts =
+      goal.status === "at_risk"
+        ? // Locked-in ground under pressure: what matters is the risk, not progress.
+          [
+            { label: "Risk", value: `${Math.round(goal.risk)}%` },
+            { label: "To clear it", value: `About ${cleanDaysToClear(goal.risk, rules)} clean days` },
+            { label: "At 100%", value: `Lost ground: its weekly points stop and it restarts from ${pct(rules.risk.lostRestartProgress)}` },
+            ...(goal.lockedInOn ? [{ label: "Locked in", value: date(goal.lockedInOn) }] : []),
+          ]
+        : [
+            { label: "Progress", value: goal.status === "lost" ? `Lost ground, back at ${pct(goal.progress)}` : `${pct(goal.progress)}` },
+            { label: "Consistent weeks", value: `${done} of ${total}` },
+            {
+              label: goal.status === "lost" ? "To win it back" : "What's left",
+              value: ready
+                ? `The real thing: ${goal.verification || "do it and log it"}`
+                : `About ${weeksLeft} more consistent ${weeksLeft === 1 ? "week" : "weeks"}${goal.kind === "milestone" ? `, then ${goal.verification || "the real achievement"}` : ""}`,
+            },
+          ];
+    const res = resistanceFor(state, goal.area);
+    const setbackKinds = new Set(["setback", "at_risk", "ground_lost", "risk_cleared"]);
+    let moments = journalFor(state, (e) => e.area === goal.area && setbackKinds.has(e.kind)).map((e) => ({ date: date(e.date), label: e.label }));
+    moments = moments.slice(-MOMENTS_SHOWN).reverse();
+    if (!moments.length && res && res.reports14d > 0)
+      moments = [{ date: "Last 2 weeks", label: `${RESISTANCE_META[res.id].name} picked as the reason ${res.reports14d} ${res.reports14d === 1 ? "time" : "times"}` }];
+    return {
+      ...base,
+      heading: goal.status === "at_risk" ? "At risk" : goal.status === "lost" ? "Lost ground" : "Working on it now",
+      coach: areaCoach(state, goal.area, rules, events),
+      facts,
+      momentsTitle: "Recent setbacks",
+      moments,
+    };
+  }
+
+  // Future ground.
+  const below = state.goals.find((g) => g.area === goal.area && g.level === goal.level - 1);
+  const unlocks: string[] = [];
+  if (below && below.status !== "locked_in") unlocks.push(`Lock in ${goalLabel(state, below.id)}`);
+  if (goal.level > state.level) unlocks.push(`Reach Level ${levelCode(goal.level)}: lock in ${rules.levels.goalsToClear} of 5 at ${levelCode((goal.level - 1) as Level)}`);
+  return {
+    ...base,
+    heading: "Ahead of you",
+    coach: `${label} is ahead of you: ${goal.title}. ${unlocks.length ? `It opens once you ${unlocks[0]!.charAt(0).toLowerCase()}${unlocks[0]!.slice(1)}.` : "It's open whenever you're ready."}`,
+    facts: [
+      { label: "Kind", value: kind },
+      { label: "What proves it", value: goal.verification || "Not set yet. Set it in Your levels." },
+      { label: "Unlocks when", value: unlocks.length ? unlocks.join(" · ") : "Open now" },
+      ...(goal.progress > 0 ? [{ label: "Kept from before", value: `${pct(goal.progress)} done, frozen until you're back on this level` }] : []),
+    ],
+    momentsTitle: "",
+    moments: [],
   };
 }

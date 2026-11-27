@@ -11,6 +11,7 @@ import type {
   Goal,
   Habit,
   HabitDay,
+  JournalEntry,
   LedgerEntry,
   LedgerKind,
   Level,
@@ -113,6 +114,15 @@ export interface SeasonRow {
   life_event_pause_used: boolean;
 }
 
+export interface JournalRow {
+  seq: number;
+  date: string;
+  kind: JournalEntry["kind"];
+  area: AreaId | null;
+  goal_id: string | null;
+  label: string;
+}
+
 /** What load_game_state returns for a player who has a profile. */
 export interface GameSnapshot {
   profile: ProfileRow;
@@ -128,6 +138,8 @@ export interface GameSnapshot {
   character: CharacterRow | null;
   recovery: RecoveryRow | null;
   season: SeasonRow | null;
+  /** Ordered by seq, oldest first. Empty = no journal. */
+  journal?: JournalRow[];
 }
 
 export class IncompleteGameError extends Error {
@@ -260,6 +272,21 @@ export function toGameState(snap: GameSnapshot): GameState {
       lifeEventPauseUsed: snap.season.life_event_pause_used,
     },
     weekProgress,
+    ...(snap.journal?.length
+      ? {
+          journal: [...snap.journal]
+            .sort((a, b) => a.seq - b.seq)
+            .map(
+              (j): JournalEntry => ({
+                date: j.date,
+                kind: j.kind,
+                ...(j.area ? { area: j.area } : {}),
+                ...(j.goal_id != null ? { goalId: j.goal_id } : {}),
+                label: j.label,
+              }),
+            ),
+        }
+      : {}),
   };
 }
 
