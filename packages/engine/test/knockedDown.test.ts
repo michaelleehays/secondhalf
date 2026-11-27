@@ -10,6 +10,8 @@ const missed = (habitId: string): CheckInEntry => ({ habitId, result: "missed", 
 const addDays = (d: string, n: number) => new Date(Date.parse(d) + n * 864e5).toISOString().slice(0, 10);
 /** Auto Recovery off (already used this season) so these tests see the knocked-down rules on their own. */
 const season = { ...SAMPLE_STATE.season, autoRecoveryUsed: true };
+/** Health one miss away from knocked down, whatever the tuning. */
+const ONE_MISS_FROM_DOWN = R.health.knockedDownAt + R.health.missCost - 1;
 const at = (health: number, knockedDown?: { since: string; plays: number }): GameState => ({
   ...SAMPLE_STATE,
   season,
@@ -18,7 +20,7 @@ const at = (health: number, knockedDown?: { since: string; plays: number }): Gam
 
 describe("Knocked down", () => {
   it("knocked down: reaching knockedDownAt sets character.knockedDown and emits knocked_down", () => {
-    const { state, events } = closeDay(at(4), { date: DATE, entries: [missed("run")] });
+    const { state, events } = closeDay(at(ONE_MISS_FROM_DOWN), { date: DATE, entries: [missed("run")] });
     expect(state.character.health).toBe(0);
     expect(state.character.knockedDown).toEqual({ since: DATE, plays: 0 });
     expect(events).toContainEqual({ type: "knocked_down" });
@@ -59,7 +61,7 @@ describe("Knocked down", () => {
   });
 
   it("knocked down at 0 health starts auto Recovery when it is still available this season", () => {
-    const fresh = { ...at(4), season: SAMPLE_STATE.season };
+    const fresh = { ...at(ONE_MISS_FROM_DOWN), season: SAMPLE_STATE.season };
     const { state, events } = closeDay(fresh, { date: DATE, entries: [missed("run")] });
     expect(state.character.knockedDown).toBeDefined();
     expect(state.recovery?.cause).toBe("auto");

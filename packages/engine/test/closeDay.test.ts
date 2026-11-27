@@ -73,26 +73,30 @@ describe("closeDay", () => {
   });
 
   it("health changes are summed and clamped once, so entry order does not matter", () => {
-    const start = withCharacter({ health: 100, graceDaysLeft: 0 });
+    // At max health, clamping after each entry would give a different total in each order.
+    const top = R.health.max;
+    const start = withCharacter({ health: top, graceDaysLeft: 0 });
     const a = day(start, full("run"), missed("meditate"));
     const b = day(start, missed("meditate"), full("run"));
-    const expected = 100 + R.health.fullRestore - R.health.missCost;
+    const expected = Math.min(top, top + R.health.fullRestore - R.health.missCost);
     expect(a.state.character.health).toBe(expected);
     expect(b.state.character.health).toBe(expected);
     expect(a.events).toEqual(b.events);
     const sum = (r: typeof a) => r.events.reduce((n, e) => n + (e.type === "health_changed" ? e.delta : 0), 0);
-    expect(sum(a)).toBe(expected - 100);
-    expect(sum(b)).toBe(expected - 100);
+    expect(sum(a)).toBe(expected - top);
+    expect(sum(b)).toBe(expected - top);
   });
 
   it("health events add up to the clamped change", () => {
-    const top = day(withCharacter({ health: 99 }), full("run"), full("meditate"));
+    // One short of max, two full habits: only 1 can be restored.
+    const top = day(withCharacter({ health: R.health.max - 1 }), full("run"), full("meditate"));
     expect(top.events.filter((e) => e.type === "health_changed")).toEqual([{ type: "health_changed", delta: 1, reason: "habit" }]);
-    // 2 + 3 - 6 = -1, clamped to 0: the events add up to -2.
-    const bottom = day(withCharacter({ health: 2, graceDaysLeft: 0 }), missed("run"), full("meditate"));
+    // One short of a miss's cost, one miss: health clamps to 0 and the events add up to what was lost.
+    const low = R.health.missCost - 1;
+    const bottom = day(withCharacter({ health: low, graceDaysLeft: 0 }), missed("run"));
     expect(bottom.state.character.health).toBe(0);
     const deltas = bottom.events.flatMap((e) => (e.type === "health_changed" ? [e.delta] : []));
-    expect(deltas.reduce((n, d) => n + d, 0)).toBe(-2);
+    expect(deltas.reduce((n, d) => n + d, 0)).toBe(-low);
   });
 
   it("strength missCost: each miss grace doesn't cover costs strength.missCost strength", () => {
