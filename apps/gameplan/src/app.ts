@@ -35,7 +35,7 @@ let TODAY = dk(new Date());
 let S: State = load();
 let sum = scoreSummary(S, TODAY);
 
-interface Sheet { type: "habit" | "metrics" | "metric"; id?: string | null }
+interface Sheet { type: "habit" | "metrics" | "metric" | "code"; id?: string | null }
 const ui: { view: string; grid: boolean; sheet: Sheet | null; confirmReset: string | null; confirmDel: boolean; trend: string } =
   { view: TODAY, grid: false, sheet: null, confirmReset: null, confirmDel: false, trend: "mood" };
 
@@ -182,8 +182,8 @@ function welcome() {
   return `<section class="card pad" style="display:flex;flex-direction:column;gap:14px">
     <div class="cap">Welcome</div>
     <h2 style="font-stretch:75%;font-weight:800;font-size:28px;text-transform:uppercase;line-height:1">Set up your game plan</h2>
-    <p style="margin:0;color:var(--ink2);font-size:14px">If you have a plan file, load it. It sets your habits, queue order, check-in questions and birth date. You can also look around with example data, or build your plan from scratch on the Plan tab.</p>
-    <div class="backup"><button class="btn" data-act="import">Load my plan file</button><button class="btn ghost" data-act="reset" data-v="sample-now">Try example data</button><a class="btn ghost" href="#plan" style="text-decoration:none">Start from scratch</a></div>
+    <p style="margin:0;color:var(--ink2);font-size:14px">If you have a plan code or file, load it. It sets your habits, queue order, check-in questions and birth date. You can also look around with example data, or build your plan from scratch on the Plan tab.</p>
+    <div class="backup"><button class="btn" data-act="pastecode">Paste my plan code</button><button class="btn ghost" data-act="import">Load a plan file</button><button class="btn ghost" data-act="reset" data-v="sample-now">Try example data</button><a class="btn ghost" href="#plan" style="text-decoration:none">Start from scratch</a></div>
     <input type="file" accept="application/json,.json" id="importfile" class="filein" tabindex="-1" aria-hidden="true"></section>`;
 }
 
@@ -365,8 +365,8 @@ function vSettings() {
   const f = (key: string, label: string, sub: string, type = "number", extra = "", obj: "set" | "pt" = "set") =>
     `<div class="set"><label for="${obj}-${key}">${label}${sub ? `<small>${sub}</small>` : ""}</label><input id="${obj}-${key}" type="${type}" data-${obj}="${key}" value="${obj === "set" ? (s as unknown as Record<string, unknown>)[key] : (P as unknown as Record<string, unknown>)[key]}" ${extra}></div>`;
   return `<section><div class="sh"><h2>Backup</h2><span class="t">Your data lives on this phone</span></div><div class="card pad" style="display:flex;flex-direction:column;gap:12px">
-    <p style="margin:0;font-size:13.5px;color:var(--ink2)">Everything is saved on this device only. Export a backup now and then, and before you delete the app from your home screen.</p>
-    <div class="backup"><button class="btn sm" data-act="export">Export backup</button><button class="btn sm ghost" data-act="import">Import backup</button><input type="file" accept="application/json,.json" id="importfile" class="filein" tabindex="-1" aria-hidden="true"></div></div></section>
+    <p style="margin:0;font-size:13.5px;color:var(--ink2)">Everything is saved on this device only. Export a backup or copy a backup code (paste it into Notes) now and then, and before you delete the app from your home screen.</p>
+    <div class="backup"><button class="btn sm" data-act="export">Export backup</button><button class="btn sm ghost" data-act="import">Import backup</button><button class="btn sm ghost" data-act="copycode">Copy backup code</button><button class="btn sm ghost" data-act="pastecode">Paste a code</button><input type="file" accept="application/json,.json" id="importfile" class="filein" tabindex="-1" aria-hidden="true"></div></div></section>
   <section><div class="sh"><h2>Points</h2><span class="t">Misses never cost points</span></div><div class="card">
     ${f("focus", "In-focus habit done", "", "number", 'min="0"', "pt")}${f("kept", "Locked-in habit kept", "", "number", 'min="0"', "pt")}${f("tracked", "Tracked don’t kept clean", "Tracked from day one", "number", 'min="0"', "pt")}
     ${f("base", "Not-in-focus habit done", "With Everything on", "number", 'min="0"', "pt")}${f("checkin", "Check-in locked in", "", "number", 'min="0"', "pt")}${f("chain", "Chain bonus", "Per habit, 7+ days running", "number", 'min="0"', "pt")}${f("grad", "Graduation", "A habit locks in", "number", 'min="0"', "pt")}
@@ -425,6 +425,11 @@ function sheet() {
     <div class="field"><label for="e-status">Where it lives</label><select id="e-status">${opt(STATUSES, h.status)}</select></div>
     <div class="actions">${ui.sheet.id ? (ui.confirmDel ? `<button class="btn danger" data-act="del">Delete for good</button>` : `<button class="btn ghost" data-act="askdel">Delete</button>`) : "<span></span>"}
       <div style="display:flex;gap:8px"><button class="btn ghost" data-act="close">Cancel</button><button class="btn" data-act="savehabit">Save</button></div></div>`;
+  } else if (ui.sheet.type === "code") {
+    body = `<h2 id="sh-t">Paste a plan code</h2>
+    <p style="margin:0;font-size:13.5px;color:var(--ink2)">Copy the whole code, then long-press the box below and tap Paste. This replaces what's in the app now.</p>
+    <textarea id="codein" rows="6" autocapitalize="off" autocorrect="off" spellcheck="false" style="font:inherit;font-size:13px;color:var(--ink);background:var(--s2);border:1px solid transparent;border-radius:10px;padding:10px;width:100%;resize:vertical" placeholder="GP1…"></textarea>
+    <div class="actions"><span></span><div style="display:flex;gap:8px"><button class="btn ghost" data-act="close">Cancel</button><button class="btn" data-act="loadcode">Load</button></div></div>`;
   } else if (ui.sheet.type === "metrics") {
     const sug = SUGGESTED_METRICS.filter((x) => !MT(x.id));
     body = `<h2 id="sh-t">Check-in questions</h2>
@@ -483,6 +488,38 @@ async function exportBackup() {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+const b64u = { enc: (b: Uint8Array) => { let x = ""; b.forEach((c) => (x += String.fromCharCode(c))); return btoa(x).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); },
+  dec: (t: string) => { const x = atob(t.replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(x, (c) => c.charCodeAt(0)); } };
+async function pipe(data: Uint8Array, stream: CompressionStream | DecompressionStream) {
+  return new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(stream)).arrayBuffer());
+}
+/** A plan code is "GP1" + base64url(deflate-raw(JSON)). Raw JSON is accepted too. */
+async function decodeCode(text: string): Promise<unknown> {
+  const t = text.replace(/\s+/g, "");
+  if (t.startsWith("{")) return JSON.parse(text);
+  if (!t.startsWith("GP1")) throw new Error("bad");
+  return JSON.parse(new TextDecoder().decode(await pipe(b64u.dec(t.slice(3)), new DecompressionStream("deflate-raw"))));
+}
+async function encodeCode(state: State) {
+  return "GP1" + b64u.enc(await pipe(new TextEncoder().encode(JSON.stringify(state)), new CompressionStream("deflate-raw")));
+}
+function loadState(raw: unknown) {
+  const s = normalize(raw, TODAY);
+  if (!s) throw new Error("bad");
+  // A plan with no history yet: start the clock on the day you load it.
+  if (!Object.keys(s.logs).length && !Object.keys(s.checkins).length)
+    for (const h of s.habits) h.start = h.status === "building" || h.status === "watching" ? TODAY : null;
+  S = s; ui.sheet = null; ui.view = TODAY; save(); render();
+}
+async function copyCode() {
+  try { await navigator.clipboard.writeText(await encodeCode(S)); toast("Backup code copied. Paste it into Notes to keep it."); }
+  catch { toast("Couldn't copy. Use Export backup instead."); }
+}
+async function loadCode() {
+  const el = document.getElementById("codein") as HTMLTextAreaElement | null;
+  try { loadState(await decodeCode(el?.value ?? "")); toast("Plan loaded. Phase 1 starts today."); }
+  catch { toast("That code didn't work. Copy the whole thing and try again."); }
 }
 async function importBackup(f: File) {
   try {
@@ -586,6 +623,9 @@ function onClick(e: MouseEvent) {
     case "gadd": S.guesses.push({ h: field("g-h"), m: field("g-m"), lag: +field("g-l") }); break;
     case "gdel": S.guesses.splice(+v, 1); break;
     case "export": void exportBackup(); return;
+    case "pastecode": ui.sheet = { type: "code" }; sheet(); setTimeout(() => document.getElementById("codein")?.focus(), 50); return;
+    case "loadcode": void loadCode(); return;
+    case "copycode": void copyCode(); return;
     case "import": ($("importfile") as HTMLInputElement).click(); return;
     case "reset": if (v === "sample-now") { S = sampleState(TODAY); ui.view = TODAY; break; } ui.confirmReset = v; break;
     case "cancelreset": ui.confirmReset = null; break;
