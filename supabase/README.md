@@ -66,7 +66,7 @@ pg_cron, hourly at :07  ->  private.invoke_close_week()  ->  pg_net POST /functi
 - **Why a function plus cron, not SQL alone:** closeWeek is engine TypeScript, so it runs in TypeScript. Postgres only decides who is due and makes each save atomic.
 - **Idempotent:** `week_rollovers` is keyed by `(user_id, week_start)`. Closing a week that is already closed fails its insert and rolls back the whole save, so reruns and concurrent runs are safe. A failed run writes no row and is retried the next hour.
 - **Only the latest week:** a player who missed several weeks gets one rollover, not a backfill.
-- **Until workstream A ships closeWeek,** the adapter reports every due player as `failed` and writes nothing. Tests use a stub.
+- **closeWeek** is the real engine function (engine #21), called through `engineCloseWeek`. If it throws for a player, that player is reported as `failed`, nothing is written, and the next hour retries. Tests cover both the real engine and a stub.
 - **Turning it on** in a project needs two Vault secrets; until both exist the hourly job does nothing:
   ```sql
   select vault.create_secret('https://<project>.supabase.co/functions/v1/close-week', 'close_week_url');

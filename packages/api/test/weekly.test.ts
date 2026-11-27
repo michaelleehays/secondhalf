@@ -101,11 +101,15 @@ describe.skipIf(!env.SUPABASE_INTEGRATION)("weekly rollover (local Supabase, stu
     expect(count).toBe(1);
   });
 
-  it("the real engine adapter reports a failure and writes nothing until closeWeek ships", async () => {
+  it("the real engine closeWeek (engine #21) runs through the adapter and its result loads back", async () => {
     const solo = await player("Pacific/Auckland");
+    // Sunday 12 Dec 23:00 in Auckland (UTC+13) = 10:00 UTC. Close the earlier weeks with the stub first.
+    await runWeeklyRollover(admin, stubCloseWeek, at("2027-12-06T00:00:00Z"));
+    const before = (await createGameApi(admin).loadGameState(solo))!;
     const r = await runWeeklyRollover(admin, engineCloseWeek(), at("2027-12-12T11:00:00Z"));
-    expect(r.failed.find((f) => f.userId === solo)?.error).toMatch(/not implemented/);
-    const { count } = await admin.from("week_rollovers").select("*", { count: "exact", head: true }).eq("user_id", solo);
-    expect(count).toBe(0);
+    expect(r.failed.filter((f) => f.userId === solo)).toEqual([]);
+    expect(r.closed.find((c) => c.userId === solo)?.weekEnding).toBe("2027-12-12");
+    const expected = engineCloseWeek()(before, "2027-12-12");
+    expect(await createGameApi(admin).loadGameState(solo)).toEqual(expected.state);
   });
 });

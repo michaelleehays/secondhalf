@@ -28,6 +28,7 @@ export interface ProfileRow {
   timezone: string;
   today: string;
   level: number;
+  best_level: number | null;
   score: number;
   credits: number;
 }
@@ -83,7 +84,13 @@ export interface RuleRow {
   starts_on: string;
   ends_on: string;
 }
-export interface CharacterRow { health: number; strength: number; grace_days_left: number }
+export interface CharacterRow {
+  health: number;
+  strength: number;
+  grace_days_left: number;
+  knocked_down_since: string | null;
+  knocked_down_plays: number | null;
+}
 export interface RecoveryRow {
   cause: "auto" | "life_event";
   started_on: string;
@@ -162,6 +169,7 @@ export function toGameState(snap: GameSnapshot): GameState {
     today: snap.profile.today,
     timezone: snap.profile.timezone,
     level: snap.profile.level as Level,
+    ...(snap.profile.best_level != null ? { bestLevel: snap.profile.best_level as Level } : {}),
     score: snap.profile.score,
     credits: snap.profile.credits,
     modes,
@@ -219,6 +227,9 @@ export function toGameState(snap: GameSnapshot): GameState {
       health: snap.character.health,
       strength: snap.character.strength,
       graceDaysLeft: snap.character.grace_days_left,
+      ...(snap.character.knocked_down_since != null && snap.character.knocked_down_plays != null
+        ? { knockedDown: { since: snap.character.knocked_down_since, plays: snap.character.knocked_down_plays } }
+        : {}),
     },
     recovery: snap.recovery
       ? {

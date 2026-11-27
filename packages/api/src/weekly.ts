@@ -8,8 +8,8 @@ import { toSaveArgs } from "./rows";
 export type CloseWeek = (state: GameState, weekEnding: IsoDate) => StepResult;
 
 /**
- * Adapter over the engine's closeWeek. Until workstream A ships it, the engine throws
- * "not implemented" and every player shows up under `failed` (and is retried next hour).
+ * Adapter over the engine's closeWeek (engine #21). If it throws for a player, that player shows up
+ * under `failed`, nothing is written for them, and the next hourly run retries.
  */
 export function engineCloseWeek(config: RulesConfig = DEFAULT_RULES): CloseWeek {
   const engine = createEngine(config);

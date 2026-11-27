@@ -10,7 +10,7 @@ function snapshotOf(s: GameState): GameSnapshot {
   return {
     profile: {
       id: s.userId, birth_year: s.birthYear, end_age: s.endAge, timezone: s.timezone, today: s.today,
-      level: s.level, score: s.score, credits: s.credits,
+      level: s.level, best_level: s.bestLevel ?? null, score: s.score, credits: s.credits,
     },
     areas: Object.entries(s.modes).map(([area, mode]) => ({
       area: area as never, mode, week_progress: Boolean(s.weekProgress[area as keyof GameState["modes"]]),
@@ -37,7 +37,10 @@ function snapshotOf(s: GameState): GameSnapshot {
     rules: s.rules.map((r) => ({
       id: r.id, trigger: r.trigger, message: r.message, effect: r.effect, starts_on: r.startsOn, ends_on: r.endsOn,
     })),
-    character: { health: s.character.health, strength: s.character.strength, grace_days_left: s.character.graceDaysLeft },
+    character: {
+      health: s.character.health, strength: s.character.strength, grace_days_left: s.character.graceDaysLeft,
+      knocked_down_since: s.character.knockedDown?.since ?? null, knocked_down_plays: s.character.knockedDown?.plays ?? null,
+    },
     recovery: s.recovery && {
       cause: s.recovery.cause, started_on: s.recovery.startedOn, day: s.recovery.day,
       days_done: s.recovery.daysDone, habit_title: s.recovery.habitTitle,
@@ -61,6 +64,8 @@ const RICH: GameState = {
   rules: [{ id: "r1", trigger: "fatigue", message: "Your minimum counts as full for 2 weeks.", effect: { kind: "minimum_counts_as_full", habitId: "run" }, startsOn: "2026-11-20", endsOn: "2026-12-04" }],
   recovery: { cause: "auto", startedOn: "2026-11-24", day: 3, daysDone: 2, habitTitle: "Tempo run" },
   weekProgress: { body: true },
+  bestLevel: 3,
+  character: { ...SAMPLE_STATE.character, health: 0, knockedDown: { since: "2026-11-25", plays: 1 } },
 };
 
 describe("toGameState", () => {
@@ -68,7 +73,7 @@ describe("toGameState", () => {
     expect(toGameState(snapshotOf(SAMPLE_STATE))).toEqual(SAMPLE_STATE);
   });
 
-  it("round-trips history, programs, rules, recovery, lock-in dates and week progress", () => {
+  it("round-trips history, programs, rules, recovery, lock-in dates, week progress, bestLevel and knockedDown", () => {
     expect(toGameState(snapshotOf(RICH))).toEqual(RICH);
   });
 
@@ -81,6 +86,10 @@ describe("toGameState", () => {
   it("leaves optional fields out rather than setting them to undefined", () => {
     const goal = toGameState(snapshotOf(SAMPLE_STATE)).goals[0]!;
     expect("lockedInOn" in goal).toBe(false);
+    const loaded = toGameState(snapshotOf(SAMPLE_STATE));
+    expect("knockedDown" in loaded.character).toBe(false);
+    const { bestLevel: _best, ...noBest } = SAMPLE_STATE;
+    expect("bestLevel" in toGameState(snapshotOf(noBest))).toBe(false);
     const day = toGameState(snapshotOf(RICH)).habits.find((h) => h.id === "run")!.history[1]!;
     expect("reason" in day).toBe(false);
     expect("graced" in day).toBe(false);

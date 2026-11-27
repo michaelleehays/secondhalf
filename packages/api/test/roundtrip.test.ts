@@ -133,6 +133,24 @@ describe.skipIf(!env.SUPABASE_INTEGRATION)("game data round-trip (local Supabase
     expect(ledgerAfter).toBe(ledgerBefore);
   });
 
+  it("bestLevel and knockedDown survive a save, and clearing them clears them", async () => {
+    const api = createGameApi(a.client);
+    const s = (await api.loadGameState(a.id))!;
+    const knocked: GameState = {
+      ...s,
+      bestLevel: 3,
+      character: { ...s.character, health: 0, knockedDown: { since: "2026-11-27", plays: 1 } },
+    };
+    await api.saveStepResult(a.id, { state: knocked, events: [] });
+    expect(await api.loadGameState(a.id)).toEqual(knocked);
+
+    const { bestLevel: _best, ...rest } = knocked;
+    const up: GameState = { ...rest, character: { health: 30, strength: s.character.strength, graceDaysLeft: s.character.graceDaysLeft } };
+    await api.saveStepResult(a.id, { state: up, events: [] });
+    expect(await api.loadGameState(a.id)).toEqual(up);
+    await api.saveStepResult(a.id, { state: s, events: [] });
+  });
+
   it("a save missing a collection is refused and archives nothing", async () => {
     const api = createGameApi(a.client);
     const before = (await api.loadGameState(a.id))!;
