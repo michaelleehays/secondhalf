@@ -59,7 +59,10 @@ export const createScene: CreateScene = async (container, options) => {
   scene.fog = fog;
 
   const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 200);
-  const rig = new CameraRig(camera);
+  /** Resistance id to the area its marker stands in, from the latest view (for the camera). */
+  const resistanceAreas = new Map<string, AreaId>();
+  // Focused subjects sit in the upper part of the screen, clear of the app's bottom sheets.
+  const rig = new CameraRig(camera, (id) => resistanceAreas.get(id), FOCUSED_SUBJECT_Y);
 
   const hemi = new THREE.HemisphereLight(LIGHT.hemiWarm, 0x1a1612, 1.6);
   scene.add(hemi);
@@ -389,6 +392,8 @@ export const createScene: CreateScene = async (container, options) => {
       goalCells.clear();
       for (const c of next.cells) if (c.goalId) goalCells.set(c.goalId, { area: c.area, level: c.level });
       resistance.update(next.resistance, resolveGoal);
+      resistanceAreas.clear();
+      for (const r of next.resistance) resistanceAreas.set(r.id, r.targetArea);
       const [x, , z] = athleteSpot(next.level);
       if (firstView || reduceMotion) walker.place(x, z);
       else walker.setGoal(x, z);
@@ -453,6 +458,8 @@ const LIGHT_COLORS = {
   sunWarm: new THREE.Color(LIGHT.sunWarm),
   sunCool: new THREE.Color(LIGHT.sunCool),
 };
+/** Where a focused subject sits, as a share of the screen height from the top. */
+const FOCUSED_SUBJECT_Y = 0.3;
 /** Fog start and end, measured beyond the camera's distance from the summit axis. */
 const FOG = { near: 4, far: 40 } as const;
 /** Event colours not tied to an area. */

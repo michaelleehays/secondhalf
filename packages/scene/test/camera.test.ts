@@ -73,3 +73,38 @@ describe("home shot", () => {
     expect(shotFor({ kind: "home" }, { ...ctx, aspect: 390 / 844 }).pos.toArray()).toEqual([0, 9, 36]);
   });
 });
+
+describe("Resistance shot and subject offset", () => {
+  it("frames a Resistance marker when its area is known, and falls back to home otherwise", async () => {
+    const { resistanceSpot } = await import("../src/layout");
+    for (const aspect of [16 / 9, 390 / 664]) {
+      const s = shotFor({ kind: "resistance", id: "temptation" }, { ...ctx, aspect, resistanceArea: "money" });
+      const cam = new THREE.PerspectiveCamera(42, aspect, 0.1, 200);
+      cam.position.copy(s.pos);
+      cam.lookAt(s.look);
+      cam.updateMatrixWorld();
+      const p = new THREE.Vector3(...resistanceSpot("money")).add(new THREE.Vector3(0, 2.2, 0)).project(cam);
+      expect(Math.abs(p.x)).toBeLessThan(0.9);
+      expect(Math.abs(p.y)).toBeLessThan(0.9);
+    }
+    expect(shotFor({ kind: "resistance", id: "temptation" }, ctx).pos).toEqual(shotFor({ kind: "home" }, ctx).pos);
+  });
+
+  it("raises a focused subject above centre and re-centres for home", () => {
+    const cam = new THREE.PerspectiveCamera(42, 16 / 9, 0.1, 200);
+    const rig = new CameraRig(cam, (id) => (id === "fatigue" ? "body" : undefined), 0.3);
+    rig.update(0.016, 2, false, true);
+    expect(cam.view?.enabled ?? false).toBe(false);
+    rig.focus({ kind: "resistance", id: "fatigue" });
+    rig.update(0.016, 2, false, true);
+    expect(cam.view?.enabled).toBe(true);
+    expect(cam.view!.offsetY / cam.view!.fullHeight).toBeCloseTo(0.2);
+    // The look point lands 30% from the top of the screen.
+    const look = shotFor({ kind: "resistance", id: "fatigue" }, { ...ctx, resistanceArea: "body" }).look.clone();
+    cam.updateMatrixWorld();
+    expect((1 - look.project(cam).y) / 2).toBeCloseTo(0.3, 2);
+    rig.focus({ kind: "home" });
+    rig.update(0.016, 2, false, true);
+    expect(cam.view?.enabled ?? false).toBe(false);
+  });
+});
