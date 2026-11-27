@@ -45,7 +45,14 @@ export interface RulesConfig {
     minimumGain: number;
   };
   grace: { perMonth: number; maxHeld: number };
-  resistance: { max: number; setbackAt: number; gamePlanDamageFactor: number; maxEquippedPlans: number };
+  resistance: {
+    max: number;
+    setbackAt: number;
+    /** Strength a Resistance drops to right after it causes a setback, so it cannot hit every day in a row. */
+    afterSetback: number;
+    gamePlanDamageFactor: number;
+    maxEquippedPlans: number;
+  };
   risk: {
     /** Misses beyond grace within 7 days that put a system goal at risk. */
     missesToTrigger: number;
@@ -97,7 +104,7 @@ export const DEFAULT_RULES: RulesConfig = {
   },
   strength: { max: 100, idleWeekCost: 3, fullGain: 1, minimumGain: 0.5 },
   grace: { perMonth: 2, maxHeld: 4 },
-  resistance: { max: 5, setbackAt: 5, gamePlanDamageFactor: 0.5, maxEquippedPlans: 3 },
+  resistance: { max: 5, setbackAt: 5, afterSetback: 3, gamePlanDamageFactor: 0.5, maxEquippedPlans: 3 },
   risk: { missesToTrigger: 3, perBadWeek: 25, fullCleanDay: 20, minimumCleanDay: 10, lostRestartProgress: 0.5 },
   levels: { goalsToClear: 4 },
   progress: { idleWeekDecay: 0.08, perFull: 0.07, perMinimum: 0.03 },
