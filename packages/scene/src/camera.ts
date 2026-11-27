@@ -31,9 +31,20 @@ export function shotFor(target: SceneTarget, ctx: ShotContext, out?: CameraShot)
   const { aspect, level } = ctx;
   switch (target.kind) {
     case "home": {
-      const narrow = aspect < 0.8;
-      shot.pos.set(0, narrow ? 9 : 8, narrow ? 36 : 29);
-      shot.look.set(0, narrow ? 5.2 : 4.4, narrow ? 4 : 5);
+      if (aspect < 0.8) {
+        // Phones: the mountain fills the frame; dragging reveals the Resistance markers.
+        shot.pos.set(0, 9, 36);
+        shot.look.set(0, 5.2, 4);
+      } else if (aspect < WIDE_ASPECT) {
+        shot.pos.set(0, 8, 29);
+        shot.look.set(0, 4.4, 5);
+      } else {
+        // Desktop: pull back just enough to frame the front Resistance markers (Body, Mind, Money),
+        // further on squarer screens because Mind and Money sit far to the sides.
+        const k = Math.min(1.35, Math.max(1, 16 / 9 / aspect));
+        shot.look.set(0, 3, 4);
+        shot.pos.set(0, 3 + 9 * k, 4 + 38 * k);
+      }
       break;
     }
     case "athlete": {
@@ -55,8 +66,9 @@ export function shotFor(target: SceneTarget, ctx: ShotContext, out?: CameraShot)
       const a = sectorMidRad(target.area);
       const dx = Math.sin(a);
       const dz = Math.cos(a);
-      shot.pos.set(dx * 30, 15, dz * 30);
-      shot.look.set(dx * 11, 3, dz * 11);
+      // Looks down the slice from above its foot, so the Resistance marker at the base is in frame.
+      shot.pos.set(dx * 33, 16, dz * 33);
+      shot.look.set(dx * 14, 2.2, dz * 14);
       break;
     }
     case "vision": {
@@ -69,6 +81,8 @@ export function shotFor(target: SceneTarget, ctx: ShotContext, out?: CameraShot)
   return shot;
 }
 
+/** At or above this aspect the home shot pulls back to include the Resistance markers. */
+const WIDE_ASPECT = 1.2;
 const MAX_YAW = 0.9;
 const UP = new THREE.Vector3(0, 1, 0);
 const _offset = new THREE.Vector3();
