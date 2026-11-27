@@ -6,9 +6,11 @@ import {
   type WorldView,
 } from "@second-half/contracts";
 import { closeDay } from "./closeDay";
+import { closeWeek } from "./closeWeek";
 import { quarterlyCheck } from "./risk";
 
 export { closeDay } from "./closeDay";
+export { closeWeek } from "./closeWeek";
 export { quarterlyCheck, raiseRisk } from "./risk";
 export { checkLevels } from "./levels";
 
@@ -24,7 +26,7 @@ export function createEngine(config: RulesConfig = DEFAULT_RULES): Engine {
 
   return {
     closeDay: (state, checkIn) => closeDay(state, checkIn, config),
-    closeWeek: notYet("closeWeek"),
+    closeWeek: (state, weekEnding) => closeWeek(state, weekEnding, config),
     startLifeEvent: notYet("startLifeEvent"),
     equipGamePlan: notYet("equipGamePlan"),
     quarterlyCheck: (state, goalId, passed, date) => quarterlyCheck(state, goalId, passed, date, config),
