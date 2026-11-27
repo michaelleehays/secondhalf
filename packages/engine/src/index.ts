@@ -31,6 +31,7 @@ export function createEngine(config: RulesConfig = DEFAULT_RULES): Engine {
     closeWeek: (state, weekEnding) => closeWeek(state, weekEnding, config),
     startLifeEvent: (state, date) => startLifeEvent(state, date, config),
     equipGamePlan: notYet("equipGamePlan"),
+    closeReview: notYet("closeReview"),
     quarterlyCheck: (state, goalId, passed, date) => quarterlyCheck(state, goalId, passed, date, config),
     projectedFinalScore: (state) => projectedFinalScore(state, config),
     toWorldView,
