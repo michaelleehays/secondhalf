@@ -18,7 +18,7 @@ export function Sheet({ open, title, onClose, children, footer }: Props) {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
-    ref.current?.focus();
+    ref.current?.focus({ preventScroll: true });
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 

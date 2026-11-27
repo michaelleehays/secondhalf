@@ -1,12 +1,12 @@
-import type { AreaMode, GameState, Habit, RulesConfig } from "@second-half/contracts";
+import type { AreaId, AreaMode, GameState, Habit, IsoDate, Level, RulesConfig } from "@second-half/contracts";
 import { AREA_META, LEVEL_NAMES, levelCode } from "./labels";
 
 const DAY_MS = 864e5;
 
-/** Whole days from `state.today` to the start of the year the player turns `endAge`. Same basis as the engine's weeksLeft. */
-export function daysLeft(state: GameState): number {
+/** Whole days from `date` (default: `state.today`) to the start of the year the player turns `endAge`. Same basis as the engine's weeksLeft. */
+export function daysLeft(state: GameState, date: IsoDate = state.today): number {
   const end = Date.UTC(state.birthYear + state.endAge, 0, 1);
-  const now = Date.parse(`${state.today}T00:00:00Z`);
+  const now = Date.parse(`${date}T00:00:00Z`);
   return Math.max(0, Math.floor((end - now) / DAY_MS));
 }
 
@@ -26,19 +26,22 @@ export interface HudModel {
   healthTone: Tone;
   strength: number;
   strengthMax: number;
-  atRisk: { goalId: string; label: string; risk: number }[];
+  atRisk: { goalId: string; area: AreaId; label: string; risk: number }[];
   recovery: { day: number; of: number } | null;
 }
 
-export function hudModel(state: GameState, rules: RulesConfig): HudModel {
+/** The player's name for a level, or the default. */
+export const levelName = (state: GameState, level: Level): string => state.levelNames?.[level]?.trim() || LEVEL_NAMES[level];
+
+export function hudModel(state: GameState, rules: RulesConfig, date: IsoDate = state.today): HudModel {
   const { health, strength } = state.character;
   const healthTone: Tone = health < rules.recovery.healthBelow ? "bad" : health < HEALTH_WARN_BELOW ? "warn" : "ok";
   return {
     levelCode: levelCode(state.level),
-    levelName: LEVEL_NAMES[state.level],
+    levelName: levelName(state, state.level),
     score: state.score,
     credits: state.credits,
-    daysLeft: daysLeft(state),
+    daysLeft: daysLeft(state, date),
     health: Math.round(health),
     healthMax: rules.health.max,
     healthTone,
@@ -46,7 +49,7 @@ export function hudModel(state: GameState, rules: RulesConfig): HudModel {
     strengthMax: rules.strength.max,
     atRisk: state.goals
       .filter((g) => g.status === "at_risk")
-      .map((g) => ({ goalId: g.id, label: `${AREA_META[g.area].name} ${levelCode(g.level)}`, risk: Math.round(g.risk) })),
+      .map((g) => ({ goalId: g.id, area: g.area, label: `${AREA_META[g.area].name} ${levelCode(g.level)}`, risk: Math.round(g.risk) })),
     recovery: state.recovery ? { day: state.recovery.day, of: rules.recovery.days } : null,
   };
 }
@@ -54,8 +57,10 @@ export function hudModel(state: GameState, rules: RulesConfig): HudModel {
 /** Habits that ask for a check-in tonight: any habit whose area mode has a weekly target above zero. */
 export function activeHabits(state: GameState): Habit[] {
   if (state.recovery) {
+    // The engine names the recovery habit "<title>: <minimum dose>".
     const title = state.recovery.habitTitle;
-    return state.habits.filter((h) => h.title === title).slice(0, 1);
+    const match = state.habits.find((h) => title === h.title || title.startsWith(`${h.title}: `));
+    return match ? [match] : activeHabits({ ...state, recovery: null }).slice(0, 1);
   }
   return state.habits.filter((h) => {
     const mode: AreaMode = state.modes[h.area];

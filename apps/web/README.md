@@ -8,17 +8,27 @@ npm run dev -w @second-half/web     # http://localhost:3000
 npm run check          # root: typecheck (packages + app), tests, app build
 ```
 
+`predev` and `prebuild` copy the athlete models from `assets/models` into `public/assets/models` (git-ignored), where the scene loads them.
+
 ## How it fits together
 
 | Piece | File | Notes |
 | --- | --- | --- |
-| Home screen | `src/components/Home.tsx` | Scene slot, HUD, dock, check-in sheet, toasts |
-| Scene slot | `src/components/SceneSlot.tsx` | Takes any `CreateScene`. Pass workstream C's `createScene` here when it lands |
-| Placeholder scene | `src/lib/placeholderScene.ts` | Flat ring map that implements `SceneHandle`. Draws a `WorldView`, no game logic |
-| Game adapter | `src/lib/adapter.ts` | `GameAdapter` interface. `createMockAdapter()` serves `SAMPLE_STATE` |
-| Mock close-day | `src/lib/mockEngine.ts` | Stand-in for `engine.closeDay` until workstream A ships it. Reads every number from `RulesConfig` |
-| HUD model | `src/lib/hud.ts` | Life clock, at-risk and recovery pills, active habits |
-| Check-in draft | `src/lib/checkin.ts` | Done / Minimum / Missed + reason, builds a `CheckIn` |
-| Coach messages | `src/lib/messages.ts` | `GameEvent[]` to toasts, in the voice rules from `CLAUDE.md` |
+| Home screen | `src/components/Home.tsx` | Scene slot, HUD, dock, sheets, toasts, demo menu |
+| Game adapter | `src/lib/adapter.ts` | `GameAdapter` interface. `createLocalAdapter()` runs the real engine in the browser and saves to localStorage |
+| Saved game | `src/lib/storage.ts` | `{ state, date, closedOn }` under `second-half:game:v1`. A missing, blocked or unreadable save starts the sample player |
+| Scene | `src/lib/sceneLoader.ts` | Loads `@second-half/scene` on demand; falls back to the flat map if WebGL is missing or the scene fails |
+| Flat map | `src/lib/placeholderScene.ts` | Implements `SceneHandle`. Draws a `WorldView`, no game logic |
+| Sheets | `src/components/Sheets.tsx` | Area, athlete, Vision and Resistance |
+| Sheet copy | `src/lib/coach.ts` | Coach lines from state, rules and the last step's events |
+| Toasts | `src/lib/messages.ts` | Every `GameEvent` to coach-voice toasts, with day and week summaries |
+| Check-in | `src/components/CheckInSheet.tsx`, `src/lib/checkin.ts` | Done / Minimum / Missed + reason, builds a `CheckIn` |
+| HUD model | `src/lib/hud.ts` | Life clock, level names, at-risk and recovery pills, active habits |
 
-Swapping in the real pieces later: replace `createMockAdapter()` with an adapter over `createEngine()` and the backend, and pass `createScene` from `@second-half/scene` to `SceneSlot`. Nothing else changes.
+## Dates
+
+The engine never reads the clock. The app passes the device's local date in (`localIsoDate`). The saved game remembers the date it is on and never moves backwards. The demo menu can skip to tomorrow, or run the Sunday rollover (`closeWeek`) and move to the Monday after.
+
+## Swapping in the backend
+
+Write a `GameAdapter` over the backend client and pass it to `<Home adapter={...} />`. Nothing else changes.

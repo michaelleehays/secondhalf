@@ -1,49 +1,94 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import type { GameState, IsoDate, Level, SceneHandle, SceneTarget } from "@second-half/contracts";
-import type { GameAdapter } from "@/lib/adapter";
-import { createMockAdapter } from "@/lib/adapter";
+import type { AreaId, GameEvent, Level, ResistanceId, SceneHandle, SceneTarget } from "@second-half/contracts";
+import { createLocalAdapter, type GameAdapter, type GameStep, type SavedGame } from "@/lib/adapter";
 import { draftReducer, toCheckIn } from "@/lib/checkin";
+import { localIsoDate } from "@/lib/dates";
 import { activeHabits, hudModel } from "@/lib/hud";
-import { toastsForDay } from "@/lib/messages";
+import { toastsFor, toastsForDay, toastsForWeek, type Toast } from "@/lib/messages";
+import { createSceneWithFallback } from "@/lib/sceneLoader";
+import { browserStore } from "@/lib/storage";
 import { CheckInSheet } from "./CheckInSheet";
+import { DemoMenu, type DemoAction } from "./DemoMenu";
 import { Hud } from "./Hud";
 import { SceneSlot } from "./SceneSlot";
+import { Sheet } from "./Sheet";
+import { AreaSheetBody, AthleteSheetBody, ResistanceSheetBody, sheetTitle, VisionSheetBody } from "./Sheets";
 import { Toasts, type ToastItem } from "./Toasts";
 
 const TOAST_MS = 4600;
 const EVENT_GAP_MS = 700;
 
-/** Home: the scene fills the screen, the HUD sits on top, tonight's check-in docks at the bottom. */
+type DetailSheet = { kind: "area"; area: AreaId; level?: Level } | { kind: "athlete" } | { kind: "vision" } | { kind: "resistance"; id: ResistanceId };
+type OpenSheet = { kind: "checkin" } | DetailSheet;
+
+/** Home: the scene fills the screen, the HUD sits on top, tonight's check-in docks at the bottom, details open as sheets. */
 export function Home({ adapter: given }: { adapter?: GameAdapter }) {
-  const adapter = useMemo(() => given ?? createMockAdapter(), [given]);
-  const [state, setState] = useState<GameState | null>(null);
-  const [sheet, setSheet] = useState<"checkin" | null>(null);
+  const adapter = useMemo(() => given ?? createLocalAdapter({ store: browserStore() }), [given]);
+  const [game, setGame] = useState<SavedGame | null>(null);
+  const [sheet, setSheet] = useState<OpenSheet | null>(null);
+  // The last sheet shown, so its content stays put while it slides away.
+  const [shown, setShown] = useState<OpenSheet | null>(null);
   const [draft, dispatch] = useReducer(draftReducer, {});
   const [busy, setBusy] = useState(false);
-  const [closedOn, setClosedOn] = useState<IsoDate | null>(null);
+  const [lastEvents, setLastEvents] = useState<GameEvent[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const scene = useRef<SceneHandle | null>(null);
+  const toastId = useRef(0);
+  /** Toasts still queued from the last step, so opening a sheet can drop them. */
+  const queued = useRef<ReturnType<typeof setTimeout>[]>([]);
   /** The control that opened the sheet, so focus can go back to it when the sheet closes. */
   const opener = useRef<HTMLElement | null>(null);
-  const toastId = useRef(0);
 
   useEffect(() => {
     let live = true;
-    adapter.load().then((s) => live && setState(s));
+    adapter.load(localIsoDate(new Date())).then((g) => live && setGame(g));
     return () => {
       live = false;
     };
   }, [adapter]);
 
+  const state = game?.state ?? null;
   const view = useMemo(() => (state ? adapter.toWorldView(state) : null), [adapter, state]);
   const habits = useMemo(() => (state ? activeHabits(state) : []), [state]);
 
-  const pushToast = useCallback((t: Omit<ToastItem, "id">) => {
+  const pushToast = useCallback((t: Toast) => {
     const id = ++toastId.current;
     setToasts((all) => [...all.slice(-2), { ...t, id }]);
     setTimeout(() => setToasts((all) => all.filter((x) => x.id !== id)), TOAST_MS);
+  }, []);
+
+  /** Applies a step: new game, events to the scene, toasts in the coach voice. */
+  const applyStep = useCallback(
+    (step: GameStep, toasts: Toast[]) => {
+      setGame(step.game);
+      setLastEvents(step.events);
+      step.events.forEach((e, i) => setTimeout(() => scene.current?.play(e), 300 + i * EVENT_GAP_MS));
+      queued.current = toasts.map((t, i) => setTimeout(() => pushToast(t), i * EVENT_GAP_MS * 1.5));
+    },
+    [pushToast],
+  );
+
+  const failed = useCallback(
+    (err: unknown, what: string) => {
+      console.error(err);
+      pushToast({ title: "Coach", body: `${what} didn't go through. Nothing changed, so try again.`, kind: "bad" });
+    },
+    [pushToast],
+  );
+
+  const open = useCallback((s: OpenSheet) => {
+    if (!opener.current) opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // The sheet's coach line carries the latest news, so toasts would only cover it.
+    queued.current.forEach(clearTimeout);
+    queued.current = [];
+    setToasts([]);
+    setSheet(s);
+    setShown(s);
+    if (s.kind === "checkin") scene.current?.focus({ kind: "home" });
+    else if (s.kind === "area") scene.current?.focus({ kind: "area", area: s.area });
+    else scene.current?.focus(s);
   }, []);
 
   const closeSheet = useCallback(() => {
@@ -56,66 +101,107 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
     if (sheet !== null || !opener.current) return;
     const el = opener.current;
     opener.current = null;
-    if (el.isConnected) el.focus();
+    if (el.isConnected) el.focus({ preventScroll: true });
   }, [sheet]);
 
-  const onSelect = useCallback((t: SceneTarget & { level?: Level }) => {
-    // The area, athlete, Vision and Resistance sheets land in the next pull request (item 4).
-    // Until then every tap only moves the scene's focus.
-    switch (t.kind) {
-      case "home":
-      case "athlete":
-      case "area":
-      case "vision":
-      case "resistance":
-        scene.current?.focus(t);
-        return;
-      default: {
-        const unhandled: never = t;
-        return unhandled;
+  const onSelect = useCallback(
+    (t: SceneTarget & { level?: Level }) => {
+      switch (t.kind) {
+        case "home":
+          closeSheet();
+          return;
+        case "area":
+          open(t.level ? { kind: "area", area: t.area, level: t.level } : { kind: "area", area: t.area });
+          return;
+        case "athlete":
+        case "vision":
+          open({ kind: t.kind });
+          return;
+        case "resistance":
+          open({ kind: "resistance", id: t.id });
+          return;
+        default: {
+          const unhandled: never = t;
+          return unhandled;
+        }
       }
-    }
-  }, []);
+    },
+    [open, closeSheet],
+  );
+
+  const closed = !!game && game.closedOn === game.date;
 
   const closeDay = async () => {
-    if (!state || busy) return;
+    if (!game || busy) return;
     setBusy(true);
     try {
-      const checkIn = toCheckIn(draft, habits.map((h) => h.id), state.today);
-      const { state: next, events } = await adapter.closeDay(state, checkIn);
-      setState(next);
-      setClosedOn(state.today);
+      const checkIn = toCheckIn(draft, habits.map((h) => h.id), game.date);
+      const step = await adapter.closeDay(game, checkIn);
       dispatch({ type: "reset" });
       closeSheet();
-      events.forEach((e, i) => setTimeout(() => scene.current?.play(e), 300 + i * EVENT_GAP_MS));
-      toastsForDay(events, next, adapter.rules).forEach((t, i) => setTimeout(() => pushToast(t), i * EVENT_GAP_MS * 1.5));
+      applyStep(step, toastsForDay(step.events, step.game.state, adapter.rules));
     } catch (err) {
-      pushToast({ title: "Coach", body: "That check-in didn't save. Your answers are still here, so try Close the day again.", kind: "bad" });
-      console.error(err);
+      failed(err, "That check-in");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const run = async (what: string, fn: () => Promise<GameStep>, toasts: (s: GameStep) => Toast[]) => {
+    if (!game || busy) return;
+    setBusy(true);
+    try {
+      const step = await fn();
+      applyStep(step, toasts(step));
+    } catch (err) {
+      failed(err, what);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDemo = async (a: DemoAction) => {
+    if (!game) return;
+    if (a === "week") {
+      closeSheet();
+      return run("The week", () => adapter.passWeek(game), (s) => toastsForWeek(s.events, s.game.state, adapter.rules));
+    }
+    setBusy(true);
+    try {
+      if (a === "day") {
+        setGame(await adapter.nextDay(game));
+        pushToast({ title: "Coach", body: "New day. Tonight's check-in is open.", kind: "info" });
+      } else {
+        closeSheet();
+        dispatch({ type: "reset" });
+        setLastEvents([]);
+        setGame(await adapter.reset(localIsoDate(new Date())));
+        pushToast({ title: "Coach", body: "Fresh start. Same mountain.", kind: "info" });
+      }
+    } catch (err) {
+      failed(err, "That");
     } finally {
       setBusy(false);
     }
   };
 
   const openCheckIn = () => {
-    if (closedOn && state && closedOn === state.today) {
+    if (closed) {
       pushToast({ title: "Coach", body: "Today is closed. Tomorrow's check-in opens in the evening.", kind: "info" });
       return;
     }
-    scene.current?.focus({ kind: "home" });
-    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    setSheet("checkin");
+    open({ kind: "checkin" });
   };
 
-  const hud = state ? hudModel(state, adapter.rules) : null;
-  const closed = !!state && closedOn === state.today;
+  const hud = state && game ? hudModel(state, adapter.rules, game.date) : null;
+  const detail = shown && shown.kind !== "checkin" ? shown : null;
 
   return (
     <main className="app">
       {/* Everything behind an open sheet is inert, so Tab and screen readers stay in the sheet. */}
       <div className="backdrop" inert={sheet !== null}>
-        <SceneSlot view={view} onReady={(h) => (scene.current = h)} onSelect={onSelect} />
-        {hud ? <Hud hud={hud} /> : null}
+        <SceneSlot view={view} createScene={createSceneWithFallback} onReady={(h) => (scene.current = h)} onSelect={onSelect} />
+        {hud && game ? <Hud hud={hud} onOpen={open} actions={<DemoMenu date={game.date} busy={busy} onAction={onDemo} />} /> : null}
         <div className="dock">
           {state ? (
             <button className={`cta${closed ? " done" : ""}`} onClick={openCheckIn}>
@@ -137,7 +223,7 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
       </div>
       {state ? (
         <CheckInSheet
-          open={sheet === "checkin"}
+          open={sheet?.kind === "checkin"}
           state={state}
           rules={adapter.rules}
           habits={habits}
@@ -147,6 +233,44 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
           onClose={closeSheet}
           onCloseDay={closeDay}
         />
+      ) : null}
+      {state && game ? (
+        <Sheet open={!!sheet && sheet.kind !== "checkin"} title={detail ? sheetTitle(detail, state) : "Details"} onClose={closeSheet}>
+          {detail?.kind === "area" ? (
+            <AreaSheetBody
+              state={state}
+              area={detail.area}
+              {...(detail.level ? { level: detail.level } : {})}
+              rules={adapter.rules}
+              events={lastEvents}
+              onResistance={(id) => open({ kind: "resistance", id })}
+            />
+          ) : detail?.kind === "athlete" ? (
+            <AthleteSheetBody
+              state={state}
+              rules={adapter.rules}
+              events={lastEvents}
+              busy={busy}
+              onLifeEvent={() => run("Logging that", () => adapter.startLifeEvent(game), (s) => toastsFor(s.events, s.game.state, adapter.rules))}
+            />
+          ) : detail?.kind === "vision" ? (
+            <VisionSheetBody state={state} projected={adapter.projectedFinalScore(state)} date={game.date} />
+          ) : detail?.kind === "resistance" ? (
+            <ResistanceSheetBody
+              state={state}
+              id={detail.id}
+              rules={adapter.rules}
+              events={lastEvents}
+              busy={busy}
+              onEquip={(planId, on) =>
+                run("That game plan", () => adapter.equipGamePlan(game, planId, on), (s) => {
+                  const t = toastsFor(s.events, s.game.state, adapter.rules);
+                  return t.length ? t : [{ title: "Game plan", body: on ? "Equipped. It halves this Resistance's next setback." : "Taken off.", kind: "info" }];
+                })
+              }
+            />
+          ) : null}
+        </Sheet>
       ) : null}
       <Toasts items={toasts} />
       {!state ? <div className="loading">Loading your game…</div> : null}
