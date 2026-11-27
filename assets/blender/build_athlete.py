@@ -6,14 +6,19 @@ Outputs (in ATHLETE_OUT_DIR, default assets/models next to this script's folder)
   athlete.manifest.json     node names, morph names and vertex counts, for the scene
 
 Every mesh node is a separate object so the scene can toggle it:
-  body, eyes, shorts                         always on
+  body, eyes, eyebrows, eyelashes, teeth, shorts   always on
   kit_shoes, kit_watch, kit_jacket, kit_wraps  kit, toggle with node.visible
 All meshes share the Mixamo-named rig and carry the "soft" and "athletic" morph targets.
-Material names are stable (the scene keys on them): Skin, Hair, Eyes, Tights, Shoe, ShoeSole,
-Watch, WatchFace, Jacket, Wraps.
+Material names are stable (the scene keys on them): Skin, Hair, Eyes, Eyebrows, Eyelashes, Teeth,
+Tights, Shoe, ShoeSole, Watch, WatchFace, Jacket, Wraps.
+
+Skin, eyes, eyebrows, eyelashes and teeth come from MakeHuman's CC0 asset packs, applied with MPFB's
+own services (set_character_skin, add_mhclo_asset). Their textures are embedded in the GLB files.
+Fetch the packs first with assets/fetch_makehuman.sh (or point MAKEHUMAN_ASSETS at an unzipped copy).
 
 Setup (once):
   pip install bpy==5.1.2
+  assets/fetch_makehuman.sh
   git clone --depth 1 https://github.com/makehumancommunity/mpfb2
   copy mpfb2/src/mpfb to the Blender 5.1 user extensions folder, as .../extensions/user_default/mpfb:
     Linux: ~/.config/blender/5.1/extensions/user_default
@@ -33,8 +38,9 @@ from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 from mathutils.interpolate import poly_3d_calc
 
-OUT_DIR = os.environ.get(
-    "ATHLETE_OUT_DIR", os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")))
+ASSETS = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+OUT_DIR = os.environ.get("ATHLETE_OUT_DIR", os.path.join(ASSETS, "models"))
+MH = os.environ.get("MAKEHUMAN_ASSETS", os.path.join(ASSETS, "vendor", "makehuman"))
 
 # ---------------------------------------------------------------- tunables
 # Average 42-year-old build, and the two morph extremes the scene blends between.
@@ -61,11 +67,33 @@ JACKET_HEM = 0.565         # fraction of body height, overlapping the top of the
 WATCH_FACE = dict(radius=0.019, depth=0.008, segments=20)
 
 # Phone model: fraction of faces kept per node (eyes and watch are already small).
-MOBILE_RATIO = dict(body=0.3, shorts=0.5, kit_shoes=0.35, kit_jacket=0.3, kit_wraps=0.4)
+MOBILE_RATIO = dict(body=0.3, shorts=0.5, kit_shoes=0.35, kit_jacket=0.3, kit_wraps=0.4, teeth=0.25)
+
+# MakeHuman CC0 assets, relative to MH. Skin is from Skins 02 (natural male, middle-aged), with its
+# diffuse and normal maps. The specular map is not used: glTF has no slot MPFB fills from it.
+SKIN = "skins/mindfront_skin_male_african_middleage/mindfront_skin_male_african_middleage.mhmat"
+# Face parts: node name -> (MPFB asset type, desktop .mhclo, phone .mhclo, material name).
+# Desktop eyebrows and eyelashes are Mindfront's mesh hairs (Eyebrows 01 / Eyelashes 01 packs).
+# They are about 10k vertices each, so the phone model uses the textured cards from the system pack.
+FACE = {
+    "eyes": ("Eyes", "eyes/low-poly/low-poly.mhclo", None, "Eyes"),
+    "eyebrows": ("Eyebrows", "eyebrows/mindfront_eyebrows_01/mindfront_eyebrows_01.mhclo",
+                 "eyebrows/eyebrow001/eyebrow001.mhclo", "Eyebrows"),
+    "eyelashes": ("Eyelashes", "eyelashes/mindfront_eyelashes_01/mindfront_eyelashes_01.mhclo",
+                  "eyelashes/eyelashes01/eyelashes01.mhclo", "Eyelashes"),
+    "teeth": ("Teeth", "teeth/teeth_base/teeth_base.mhclo", None, "Teeth"),
+}
+# Eye colour: any .mhmat in eyes/materials (brown, brownlight, green, grey, blue, ...).
+EYE_MATERIAL = "eyes/materials/brownlight.mhmat"
+# Textures embedded in the GLB, longest side in pixels: (desktop, phone).
+TEXTURE_MAX = dict(Skin=(2048, 1024), Eyes=(512, 256), Teeth=(512, 256), Eyebrows=(256, 256), Eyelashes=(256, 256))
+JPEG_QUALITY = 88          # textures go into the GLB as JPEG, except those whose alpha is used (PNG)
+# Mindfront mesh eyebrows and lashes ship without a texture; they get these flat colours (linear RGB, roughness).
+HAIR_MESH_COLORS = dict(Eyebrows=((0.035, 0.025, 0.02), 0.7), Eyelashes=((0.015, 0.012, 0.01), 0.6))
 
 COLORS = {  # linear RGB, roughness
     "Skin": ((0.55, 0.38, 0.29), 0.55),
-    "Hair": ((0.04, 0.03, 0.025), 0.8),
+    "Hair": ((1.0, 1.0, 1.0), 0.6),  # buzz cut: tints the skin texture, whose scalp already has stubble
     "Eyes": ((0.05, 0.03, 0.02), 0.2),
     "Tights": ((0.03, 0.03, 0.035), 0.6),
     "Shoe": ((0.12, 0.13, 0.15), 0.5),
@@ -83,6 +111,18 @@ _P = "bl_ext.user_default.mpfb."
 HumanService = importlib.import_module(_P + "services.humanservice").HumanService
 TargetService = importlib.import_module(_P + "services.targetservice").TargetService
 HumanProps = importlib.import_module(_P + "entities.objectproperties").HumanObjectProperties
+ClothesService = importlib.import_module(_P + "services.clothesservice").ClothesService
+Mhclo = importlib.import_module(_P + "entities.clothes.mhclo").Mhclo
+MhMaterial = importlib.import_module(_P + "entities.material.mhmaterial").MhMaterial
+GameEngineMaterial = importlib.import_module(
+    _P + "entities.nodemodel.v2.materials.nodewrappergameengine").NodeWrapperGameEngine
+
+
+def mh_path(rel):
+    path = os.path.join(MH, rel)
+    if not os.path.exists(path):
+        raise SystemExit(f"Missing MakeHuman asset {path}. Run assets/fetch_makehuman.sh first.")
+    return path
 
 
 def evaluated_coords(obj):
@@ -115,6 +155,45 @@ def build_human():
     for name, co in shapes.items():
         body.shape_key_add(name=name, from_mix=False).data.foreach_set("co", co.ravel())
     return body, rig
+
+
+def add_face_part(body, asset_type, rel, name):
+    """Load one MakeHuman .mhclo with MPFB, rigged to the Mixamo skeleton and given the body's morphs.
+
+    MPFB fits the asset to the body's current shape. Fitting again with each morph switched on gives
+    the asset's own soft and athletic shapes, so it stays in place when the scene blends the build.
+    """
+    path = mh_path(rel)
+    obj = HumanService.add_mhclo_asset(path, body, asset_type=asset_type, subdiv_levels=0,
+                                       material_type="GAMEENGINE", import_subrig=False)
+    obj.name = obj.data.name = name
+    mhclo = Mhclo()
+    mhclo.load(path)
+    mhclo.clothes = obj
+    keys = body.data.shape_keys.key_blocks
+    for kb in keys[1:]:
+        kb.value = 0.0
+    shapes = {}
+    for morph in MORPHS:
+        keys[morph].value = 1.0
+        ClothesService.fit_clothes_to_human(obj, body, mhclo, set_parent=False)
+        shapes[morph] = coords(obj)
+        keys[morph].value = 0.0
+    ClothesService.fit_clothes_to_human(obj, body, mhclo, set_parent=False)
+    obj.shape_key_add(name="Basis", from_mix=False)
+    for morph, co in shapes.items():
+        obj.shape_key_add(name=morph, from_mix=False).data.foreach_set("co", co.ravel())
+    return obj
+
+
+def add_face(body):
+    """Eyes, eyebrows, eyelashes and teeth. Returns {node: object} and {node: phone object}."""
+    full, phone = {}, {}
+    for node, (asset_type, rel, phone_rel, _) in FACE.items():
+        full[node] = add_face_part(body, asset_type, rel, node)
+        if phone_rel:
+            phone[node] = add_face_part(body, asset_type, phone_rel, node + ".phone")
+    return full, phone
 
 
 # ---------------------------------------------------------------- mesh helpers
@@ -236,18 +315,19 @@ def along_bone(co, rig, bone):
 
 
 def separate_helpers(body):
-    """Drop MPFB helper geometry except tights and eyes, which become their own objects."""
+    """Drop MPFB helper geometry except the tights, which become their own object.
+
+    The helper eyes go too: the MakeHuman low-poly eyes replace them.
+    """
     def vg(names, thr=0.5):
         return group_weights(body, names) > thr
 
     helpers = vg(["HelperGeometry", "JointCubes"])
-    tights, eyes = vg(["helper-tights"]), vg(["helper-l-eye", "helper-r-eye"])
-    delete_verts(body, helpers & ~tights & ~eyes)
-    tights, eyes = vg(["helper-tights"]), vg(["helper-l-eye", "helper-r-eye"])
+    delete_verts(body, helpers & ~vg(["helper-tights"]))
+    tights = vg(["helper-tights"])
     t = cut_region(body, tights, "shorts")
-    e = cut_region(body, eyes, "eyes")
-    delete_verts(body, tights | eyes)
-    return t, e
+    delete_verts(body, tights)
+    return t
 
 
 def body_extent(body):
@@ -454,6 +534,79 @@ def material(name):
     return _mats[name]
 
 
+def mpfb_material(obj, name, mhmat=None):
+    """Take over the material MPFB built for obj (Principled BSDF fed by image nodes) under a stable name.
+
+    With mhmat, rebuild it first from that .mhmat with MPFB's game engine node wrapper (eye colour).
+    Opaque parts drop MPFB's alpha link; the hair cards keep it and blend.
+    name may carry a suffix (Eyebrows.phone) while two versions of a part exist; settings use the base name.
+    """
+    base = name.split(".")[0]
+    mat = obj.data.materials[0]
+    if mhmat:
+        mat.node_tree.nodes.clear()
+        m = MhMaterial()
+        m.populate_from_mhmat(mh_path(mhmat))
+        GameEngineMaterial.create_instance(mat.node_tree, mhmat=m)
+    old = bpy.data.materials.get(name)
+    if old is not None and old is not mat:
+        old.name = name + ".old"
+    mat.name = name
+    nodes, links = mat.node_tree.nodes, mat.node_tree.links
+    bsdf = nodes["Principled BSDF"]
+    alpha = nodes.get("AlphaMapTexture")
+    has_texture = nodes.get("DiffuseTexture") is not None and nodes["DiffuseTexture"].image is not None
+    blended = base in ("Eyebrows", "Eyelashes") and has_texture
+    if alpha is not None and not blended:
+        nodes.remove(alpha)
+    if base in HAIR_MESH_COLORS and not has_texture:
+        col, rough = HAIR_MESH_COLORS[base]
+        bsdf.inputs["Base Color"].default_value = (*col, 1)
+        bsdf.inputs["Roughness"].default_value = rough
+    else:
+        bsdf.inputs["Roughness"].default_value = COLORS.get(base, ((0, 0, 0), 0.5))[1]
+    bsdf.inputs["Specular IOR Level"].default_value = 0.3
+    mat.surface_render_method = "BLENDED" if blended else "DITHERED"
+    mat.use_backface_culling = base not in ("Eyebrows", "Eyelashes")
+    return mat
+
+
+def hair_material(skin):
+    """Buzz cut: the skin material (same images, so no extra texture bytes), darkened by a colour factor.
+
+    The glTF exporter writes the multiply as baseColorFactor.
+    """
+    mat = skin.copy()
+    mat.name = "Hair"
+    col, rough = COLORS["Hair"]
+    nodes, links = mat.node_tree.nodes, mat.node_tree.links
+    bsdf = nodes["Principled BSDF"]
+    tex = nodes["DiffuseTexture"]
+    mix = nodes.new("ShaderNodeMix")
+    mix.data_type, mix.blend_type = "RGBA", "MULTIPLY"
+    mix.inputs["Factor"].default_value = 1.0
+    mix.inputs["B"].default_value = (*col, 1)
+    links.new(tex.outputs["Color"], mix.inputs["A"])
+    links.new(mix.outputs["Result"], bsdf.inputs["Base Color"])
+    bsdf.inputs["Roughness"].default_value = rough
+    _mats["Hair"] = mat
+    return mat
+
+
+def texture_images(mat):
+    return [n.image for n in mat.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is not None]
+
+
+def fit_textures(materials, which):
+    """Cap every texture at TEXTURE_MAX[material][which] pixels: 0 for desktop, 1 for phone."""
+    for mat in materials:
+        cap = TEXTURE_MAX[mat.name.split(".")[0]][which]
+        for img in texture_images(mat):
+            w, h = img.size
+            if max(w, h) > cap:
+                img.scale(max(1, w * cap // max(w, h)), max(1, h * cap // max(w, h)))
+
+
 def set_materials(obj, *names):
     obj.data.materials.clear()
     for n in names:
@@ -516,10 +669,20 @@ def export(path, objects):
     bpy.ops.object.select_all(action="DESELECT")
     for o in objects:
         o.select_set(True)
+        # New shape keys start at 1.0 in Blender. Export every morph at 0 (the average build) so the
+        # glTF default weights agree across meshes; the scene sets them from WorldView.athlete.build.
+        if o.type == "MESH" and o.data.shape_keys:
+            for kb in o.data.shape_keys.key_blocks[1:]:
+                kb.value = 0.0
     bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True, export_morph=True,
                               export_skins=True, export_animations=False, export_apply=False,
-                              export_morph_normal=False)
+                              export_morph_normal=False, export_image_format="JPEG",
+                              export_jpeg_quality=JPEG_QUALITY)
     return os.path.getsize(path)
+
+
+def texture_stats(materials):
+    return {m.name: {img.name: list(img.size) for img in texture_images(m)} for m in materials}
 
 
 def stats(meshes):
@@ -534,7 +697,8 @@ def main():
         bpy.data.objects.remove(o)
 
     body, rig = build_human()
-    shorts, eyes = separate_helpers(body)
+    face, face_phone = add_face(body)
+    shorts = separate_helpers(body)
     body.name = body.data.name = "body"
     z0, H = body_extent(body)
 
@@ -545,9 +709,14 @@ def main():
     make_shorts(shorts, z0, H)
     kit = [make_shoes(body, rig, z0), make_watch(body, rig), make_jacket(body, rig, z0, H), make_wraps(body, rig)]
 
-    set_materials(body, "Skin", "Hair")
+    # Skin: MPFB builds the material from the Skins 02 .mhmat; the buzz cut is a second slot.
+    HumanService.set_character_skin(mh_path(SKIN), body, skin_type="GAMEENGINE", material_instances=False)
+    textured = [mpfb_material(body, "Skin")]
+    body.data.materials.append(hair_material(textured[0]))
     assign_faces(body, scalp, 1)
-    set_materials(eyes, "Eyes")
+    for node, obj in face.items():
+        textured.append(mpfb_material(obj, FACE[node][3], EYE_MATERIAL if node == "eyes" else None))
+    phone_textured = {node: mpfb_material(obj, FACE[node][3] + ".phone") for node, obj in face_phone.items()}
     set_materials(shorts, "Tights")
     shoes, watch, jacket, wraps = kit
     set_materials(shoes, "Shoe", "ShoeSole")
@@ -556,32 +725,46 @@ def main():
     set_materials(wraps, "Wraps")
     # watch materials were added in make_watch
 
-    meshes = [body, eyes, shorts, *kit]
-    for o in meshes:
+    meshes = [body, *face.values(), shorts, *kit]
+    for o in [*meshes, *face_phone.values()]:
         keep_only_bone_groups(o, rig)
         for p in o.data.polygons:
             if o is not watch or p.material_index == 0:
                 p.use_smooth = True
 
+    fit_textures(textured, 0)
     full_stats = stats(meshes)
+    full_textures = texture_stats(textured)
     full_size = export(os.path.join(OUT_DIR, "athlete.glb"), [rig, *meshes])
 
+    # Phone: swap in the light eyebrows and eyelashes under the same node names, then decimate.
+    for node, obj in face_phone.items():
+        face[node].name = face[node].data.name = node + ".desktop"
+        obj.name = obj.data.name = node
+        meshes[meshes.index(face[node])] = obj
+        old = face[node].data.materials[0]
+        textured.remove(old)
+        old.name += ".desktop"
+        phone_textured[node].name = FACE[node][3]
+        textured.append(phone_textured[node])
     for o in meshes:
         if o.name in MOBILE_RATIO:
             decimate_with_shape_keys(o, MOBILE_RATIO[o.name])
             for p in o.data.polygons:
                 p.use_smooth = True
+    fit_textures(textured, 1)
     mobile_stats = stats(meshes)
+    mobile_textures = texture_stats(textured)
     mobile_size = export(os.path.join(OUT_DIR, "athlete_mobile.glb"), [rig, *meshes])
 
     manifest = {
         "rig": "mixamo",
         "morphTargets": list(MORPHS),
-        "alwaysOn": ["body", "eyes", "shorts"],
+        "alwaysOn": ["body", *FACE, "shorts"],
         "kit": {"shoes": "kit_shoes", "watch": "kit_watch", "jacket": "kit_jacket", "wraps": "kit_wraps"},
         "files": {
-            "athlete.glb": {"bytes": full_size, "meshes": full_stats},
-            "athlete_mobile.glb": {"bytes": mobile_size, "meshes": mobile_stats},
+            "athlete.glb": {"bytes": full_size, "meshes": full_stats, "textures": full_textures},
+            "athlete_mobile.glb": {"bytes": mobile_size, "meshes": mobile_stats, "textures": mobile_textures},
         },
     }
     with open(os.path.join(OUT_DIR, "athlete.manifest.json"), "w") as f:

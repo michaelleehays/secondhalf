@@ -6,10 +6,13 @@ Character pipeline and models. See `docs/workstreams/D-character.md`.
 
 | File | What it is |
 | --- | --- |
+| `fetch_makehuman.sh` | Downloads MakeHuman's CC0 asset packs into `vendor/makehuman/` (gitignored, about 370 MB). |
 | `blender/build_athlete.py` | Headless Blender + MPFB 2 build script. Writes the three files below. |
+| `blender/render_preview.py` | Eevee render of the built models to `models/preview.png`. |
 | `models/athlete.glb` | Full athlete for desktop. |
 | `models/athlete_mobile.glb` | Lighter athlete for phones: same rig, morphs, node and material names. |
 | `models/athlete.manifest.json` | Node names, morph names, vertex counts and file sizes, written by the build. |
+| `models/preview.png` | Eevee preview: front, three-quarter, desktop head, phone head (no kit). |
 | `previews/athlete_kit.png` | Screenshot: no kit, all kit, phone model, bent test pose. |
 
 ## What is in the model
@@ -22,13 +25,19 @@ Character pipeline and models. See `docs/workstreams/D-character.md`.
 
 | Node | Materials | Notes |
 | --- | --- | --- |
-| `body` | `Skin`, `Hair` | Hair is the buzz-cut slot on the scalp. |
-| `eyes` | `Eyes` | |
+| `body` | `Skin`, `Hair` | MakeHuman skin texture (diffuse + normal map). Hair is the buzz-cut slot on the scalp; it uses the same texture. |
+| `eyes` | `Eyes` | MakeHuman low-poly eyes, textured. |
+| `eyebrows` | `Eyebrows` | Desktop: mesh hairs. Phone: a textured card with alpha (`alphaMode: BLEND`). |
+| `eyelashes` | `Eyelashes` | Same as eyebrows. |
+| `teeth` | `Teeth` | Follows the `Head` bone (the Mixamo rig has no jaw). |
 | `shorts` | `Tights` | Fight shorts. Always on. This node was called `tights` before; the material name is unchanged. |
 | `kit_shoes` | `Shoe`, `ShoeSole` | Running shoes. Soles sit on the floor, so no height change is needed. |
 | `kit_watch` | `Watch`, `WatchFace` | Training watch, left wrist. |
 | `kit_jacket` | `Jacket` | Fitted training jacket. Sleeves stop above the watch. |
 | `kit_wraps` | `Wraps` | Hand wraps, both hands. |
+
+All textures are embedded in the GLB (JPEG, or PNG where alpha is used), so the scene needs no extra
+files. Morph weights default to 0 (the average build) on every mesh.
 
 Toggle kit by setting the node's `visible`. In three.js a node with two materials loads as a group
 holding one mesh per material, so set `visible` on the `kit_*` node itself, not on its children.
@@ -38,8 +47,9 @@ Phone vs desktop (from `athlete.manifest.json`, current build):
 | | Desktop | Phone |
 | --- | --- | --- |
 | Body, Blender vertices | 13,380 | 4,015 |
-| All meshes, Blender vertices | 17,826 | 5,804 |
-| File size | 1.7 MB | 0.6 MB |
+| All meshes, Blender vertices | 42,202 | 7,244 |
+| Skin textures | 2048 px | 1024 px |
+| File size | 4.6 MB | 1.0 MB |
 
 Vertex counts here and in the manifest (`blenderVertices`) are Blender's. three.js reports more,
 because glTF splits vertices at UV seams and material edges.
@@ -48,18 +58,21 @@ because glTF splits vertices at UV seams and material edges.
 
 ```bash
 pip install bpy==5.1.2
+assets/fetch_makehuman.sh                 # MakeHuman CC0 packs into assets/vendor/makehuman
 git clone --depth 1 https://github.com/makehumancommunity/mpfb2
 EXT=~/.config/blender/5.1/extensions/user_default                          # Linux
 # EXT="$HOME/Library/Application Support/Blender/5.1/extensions/user_default"  # macOS
 mkdir -p "$EXT"
 cp -r mpfb2/src/mpfb "$EXT/mpfb"
-python3 assets/blender/build_athlete.py   # from any folder, takes a few seconds
+python3 assets/blender/build_athlete.py   # from any folder, takes under a minute
+python3 assets/blender/render_preview.py  # optional; headless Linux needs Mesa EGL (libegl1 libegl-mesa0 libgl1-mesa-dri)
 ```
 
 Output goes to `assets/models` beside the script, wherever you run it from.
 
-Set `ATHLETE_OUT_DIR` to write somewhere else. Every tunable (build, kit placement, phone
-reduction, colours) is a named constant at the top of the script.
+Set `ATHLETE_OUT_DIR` to write somewhere else, and `MAKEHUMAN_ASSETS` to use packs unzipped elsewhere.
+Every tunable (build, kit placement, phone reduction, colours, skin, eye colour, face parts, texture
+sizes) is a named constant at the top of the script.
 
 ## How the kit is made
 
@@ -78,36 +91,12 @@ The phone model uses collapse decimation. Blender cannot decimate a mesh that ha
 so the script decimates the rest shape and then rebuilds each morph by sampling the original
 offsets at the nearest point on the full mesh.
 
-## Waiting on the founder: MakeHuman asset packs
+## MakeHuman assets
 
-The MakeHuman asset sites (`files.makehumancommunity.org`, `static.makehumancommunity.org`) are
-blocked from the cloud workspace. Please download these on your computer and add them to the
-repo under `assets/vendor/makehuman/` (or send them over):
-
-Download whole asset folders, not single files. Each `.mhclo` needs the `.obj`, `.mhmat` and
-textures that sit beside it, and a skin `.mhmat` needs its textures. Once the build uses them,
-commit only the folders it actually uses.
-
-All packs are listed on the asset pack index:
-https://static.makehumancommunity.org/assets/assetpacks.html. Download these four, each CC0:
-
-1. **Makehuman system assets** (required). The build uses these folders from it, each complete:
-   - `eyes/` (the folder with `low-poly.mhclo`, plus the eye textures)
-   - `teeth/` (`teeth_base.mhclo`) and `tongue/` (`tongue01.mhclo`)
-   - `skins/`, if it holds a usable male skin
-2. **Skins 02**: natural male skins. Take the whole folder for each skin we pick.
-3. **Eyebrows 01**
-4. **Eyelashes 01**
-
-Check that each pack's page says **CC0** before downloading, and keep its page or license text
-so it can be logged in `LICENSES.md`.
-
-Clothing and shoes are optional, for replacing the stand-in kit later. Take them from the same
-index, CC0 packs only: running shoes, a fitted jacket or track top, and shorts, each garment's
-whole folder.
-
-**Installing a pack:** either unzip it into MPFB's user data folder, or in Blender use MPFB's
-**Apply assets → Library Settings → Load pack from zip file**. For the repo, copy only the folders
-the build uses into `assets/vendor/makehuman/`.
-
-Do not use packs marked CC-BY, non-commercial or "unknown". They are outside our licence rule.
+`fetch_makehuman.sh` downloads four CC0 packs (system assets, Skins 02, Eyebrows 01, Eyelashes 01)
+from files.makehumancommunity.org and unzips them into `assets/vendor/makehuman/`. That folder is
+gitignored: the system pack alone is about 280 MB. The build applies them with MPFB's own services:
+`set_character_skin` for the skin and `add_mhclo_asset` for eyes, eyebrows, eyelashes and teeth, then
+refits each face part with the soft and athletic morphs switched on to give it the same morph targets.
+Each pack and asset is logged in `LICENSES.md`. Clothing packs can replace the stand-in kit later;
+use CC0 packs only.
