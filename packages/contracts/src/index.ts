@@ -152,6 +152,11 @@ export interface CharacterState {
   /** 0..100. Long-run consistency. Drives build. */
   strength: number;
   graceDaysLeft: number;
+  /**
+   * Present while knocked down (health reached rules.health.knockedDownAt). Each done or minimum entry adds 1 to
+   * `plays`; at rules.health.getUpAfterPlays it is cleared and health becomes rules.health.getUpHealth.
+   */
+  knockedDown?: { since: IsoDate; plays: number };
 }
 
 export interface RecoveryState {
@@ -242,7 +247,9 @@ export type GameEvent =
   | { type: "rule_adjusted"; rule: RuleAdjustment }
   | { type: "recovery_started"; cause: RecoveryState["cause"] }
   | { type: "recovery_ended"; completed: boolean }
-  | { type: "knocked_down" };
+  | { type: "knocked_down" }
+  /** More weekly maintenance habits than rules.maintenance.maxWeeklyHabits; the UI offers merge, convert or retire. */
+  | { type: "maintenance_cap"; count: number; max: number; habitIds: string[] };
 
 export interface StepResult {
   state: GameState;
