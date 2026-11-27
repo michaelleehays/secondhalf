@@ -1,0 +1,86 @@
+{
+  "rig": "mixamo",
+  "morphTargets": [
+    "soft",
+    "athletic"
+  ],
+  "alwaysOn": [
+    "body",
+    "eyes",
+    "shorts"
+  ],
+  "kit": {
+    "shoes": "kit_shoes",
+    "watch": "kit_watch",
+    "jacket": "kit_jacket",
+    "wraps": "kit_wraps"
+  },
+  "files": {
+    "athlete.glb": {
+      "bytes": 1740252,
+      "meshes": {
+        "body": {
+          "vertices": 13380,
+          "triangles": 26756
+        },
+        "eyes": {
+          "vertices": 144,
+          "triangles": 280
+        },
+        "shorts": {
+          "vertices": 517,
+          "triangles": 956
+        },
+        "kit_shoes": {
+          "vertices": 400,
+          "triangles": 788
+        },
+        "kit_watch": {
+          "vertices": 102,
+          "triangles": 156
+        },
+        "kit_jacket": {
+          "vertices": 2465,
+          "triangles": 4796
+        },
+        "kit_wraps": {
+          "vertices": 818,
+          "triangles": 1479
+        }
+      }
+    },
+    "athlete_mobile.glb": {
+      "bytes": 617372,
+      "meshes": {
+        "body": {
+          "vertices": 4015,
+          "triangles": 8026
+        },
+        "eyes": {
+          "vertices": 144,
+          "triangles": 280
+        },
+        "shorts": {
+          "vertices": 273,
+          "triangles": 478
+        },
+        "kit_shoes": {
+          "vertices": 143,
+          "triangles": 274
+        },
+        "kit_watch": {
+          "vertices": 102,
+          "triangles": 156
+        },
+        "kit_jacket": {
+          "vertices": 771,
+          "triangles": 1438
+        },
+        "kit_wraps": {
+          "vertices": 356,
+          "triangles": 590
+        }
+      }
+    }
+  }
+}
