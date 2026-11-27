@@ -155,3 +155,16 @@ describe("plan edits and verification", () => {
     expect(g.status).toBe("locked_in");
   });
 });
+
+describe("plan edits with the real engine", () => {
+  it("renames a level, and turns down a kind change on at-risk ground with a reason", async () => {
+    const a = createLocalAdapter({ store: memoryStore() });
+    const g = await a.load(TODAY);
+    expect(a.canEditPlan(g.state)).toBe(true);
+    const renamed = await a.applyPlanEdit(g, { kind: "rename_level", level: 2, name: "Engine room" });
+    expect(renamed.game.state.levelNames?.[2]).toBe("Engine room");
+    const refused = await a.applyPlanEdit(renamed.game, { kind: "set_goal", goalId: "money-101", goalKind: "system" });
+    expect(refused.events[0]?.type).toBe("plan_rejected");
+    expect(refused.game.state).toEqual(renamed.game.state);
+  });
+});

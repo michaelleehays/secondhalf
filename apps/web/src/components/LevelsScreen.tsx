@@ -77,7 +77,9 @@ export function LevelsScreen({ state, rules, canEdit, onBack, onGoal, apply }: P
           <article key={r.level} ref={r.current ? currentRef : undefined} className={`rung${r.current ? " current" : ""}`} aria-label={`Level ${r.code}`}>
             <LevelName level={r.level} code={r.code} name={r.name} current={r.current} held={r.held} total={r.goals.length} state={state} apply={apply} />
             {r.level === 5 ? (
-              <p className="small muted">The summit: your Vision, in your own words. It comes into view as the rings below are locked in.</p>
+              <p className={`small${state.vision?.trim() ? "" : " muted"}`}>
+                {state.vision?.trim() || "The summit: your Vision, in your own words. It comes into view as the rings below are locked in."}
+              </p>
             ) : (
               <ul className="goals">
                 {r.goals.map((g) => (

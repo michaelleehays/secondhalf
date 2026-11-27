@@ -202,8 +202,14 @@ export function VisionSheetBody({ state, projected, date, onLevels }: { state: G
         <span className="tag" style={style({ "--c": "var(--gold)" })}>
           501 · {v.name}
         </span>
-        <b className="title">Written in your words</b>
-        <p className="small muted">You'll write your Vision when you design your levels. It sits at the summit and every ring below climbs toward it.</p>
+        {state.vision?.trim() ? (
+          <b className="title">{state.vision}</b>
+        ) : (
+          <>
+            <b className="title muted">Not written yet</b>
+            <p className="small muted">Your Vision is the life you're playing for, in your own words. It sits at the summit and every ring below climbs toward it.</p>
+          </>
+        )}
       </article>
       <button className="btn row" onClick={onLevels}>
         <span>
