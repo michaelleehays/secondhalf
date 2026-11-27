@@ -36,6 +36,7 @@ export interface Athlete {
 }
 
 interface RigBone {
+  key: PosedBone;
   bone: THREE.Bone;
   rest: THREE.Quaternion;
   /** Rest orientation in character space. */
@@ -43,8 +44,41 @@ interface RigBone {
   worldInv: THREE.Quaternion;
 }
 
+/** Texture slots that hold colour (sRGB). Every other texture slot holds data (linear). */
+const COLOR_MAPS = new Set(["map", "emissiveMap", "sheenColorMap", "specularColorMap"]);
+
+/**
+ * Makes a material's textures render correctly: colour maps in sRGB, data maps (normal, roughness,
+ * metalness, AO...) linear, and anisotropic filtering for oblique views. GLTFLoader already marks
+ * base colour and emissive as sRGB; this keeps it right for any texture the model brings.
+ */
+export function prepareMaterialTextures(mat: THREE.Material, maxAnisotropy = 1) {
+  const slots = mat as unknown as Record<string, unknown>;
+  let changed = false;
+  for (const key of Object.keys(slots)) {
+    const tex = slots[key] as THREE.Texture | null;
+    if (!tex || !tex.isTexture) continue;
+    const colorSpace = COLOR_MAPS.has(key) ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    if (tex.colorSpace !== colorSpace) {
+      tex.colorSpace = colorSpace;
+      tex.needsUpdate = true;
+      changed = true;
+    }
+    if (maxAnisotropy > tex.anisotropy) {
+      tex.anisotropy = Math.min(8, maxAnisotropy);
+      tex.needsUpdate = true;
+    }
+  }
+  if (changed) mat.needsUpdate = true;
+}
+
+export interface AthleteOptions {
+  /** renderer.capabilities.getMaxAnisotropy(); 1 in tests. */
+  maxAnisotropy?: number;
+}
+
 /** Wraps a loaded athlete glTF scene. Pure presentation: it reads WorldView.athlete only. */
-export function createAthlete(model: THREE.Object3D): Athlete {
+export function createAthlete(model: THREE.Object3D, options: AthleteOptions = {}): Athlete {
   const root = new THREE.Group();
   root.name = "athlete";
   const body = new THREE.Group();
@@ -57,6 +91,7 @@ export function createAthlete(model: THREE.Object3D): Athlete {
     if ((o as THREE.Mesh).isMesh) {
       const m = o as THREE.Mesh;
       m.frustumCulled = false;
+      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) prepareMaterialTextures(mat, options.maxAnisotropy);
       if (m.morphTargetDictionary && m.morphTargetInfluences) morphMeshes.push(m);
     }
   });
@@ -80,8 +115,10 @@ export function createAthlete(model: THREE.Object3D): Athlete {
     const key = POSED_BONES.find((b) => o.name === `mixamorig${b}` || o.name === `mixamorig:${b}`);
     if (!key) return;
     const world = modelInv.clone().multiply(o.getWorldQuaternion(new THREE.Quaternion()));
-    bones.set(key, { bone: o as THREE.Bone, rest: o.quaternion.clone(), world, worldInv: world.clone().invert() });
+    bones.set(key, { key, bone: o as THREE.Bone, rest: o.quaternion.clone(), world, worldInv: world.clone().invert() });
   });
+  /** Array copy for the per-frame loop (iterating a Map allocates). */
+  const boneList = [...bones.values()];
   const hips = bones.get("Hips");
   const hipsRest = hips ? hips.bone.position.clone() : new THREE.Vector3();
   const hipsParentInv = new THREE.Quaternion();
@@ -115,7 +152,8 @@ export function createAthlete(model: THREE.Object3D): Athlete {
   function applyMorphs() {
     const soft = Math.max(0, -cur.build);
     const athletic = Math.max(0, cur.build);
-    for (const m of morphMeshes) {
+    for (let i = 0; i < morphMeshes.length; i++) {
+      const m = morphMeshes[i]!;
       const d = m.morphTargetDictionary!;
       const inf = m.morphTargetInfluences!;
       if (d[MORPH_SOFT] !== undefined) inf[d[MORPH_SOFT]] = soft;
@@ -170,8 +208,9 @@ export function createAthlete(model: THREE.Object3D): Athlete {
       poseInput.walk = walk;
       poseInput.walkPhase = walkPhase;
       poseAt(poseInput, pose);
-      for (const [key, rb] of bones) {
-        const off = pose.bones[key];
+      for (let i = 0; i < boneList.length; i++) {
+        const rb = boneList[i]!;
+        const off = pose.bones[rb.key];
         // Character-space rotation R becomes a local offset W⁻¹·R·W on top of the rest pose.
         q.setFromEuler(e.set(off[0], off[1], off[2]));
         rb.bone.quaternion.copy(rb.rest).multiply(rb.worldInv).multiply(q).multiply(rb.world);

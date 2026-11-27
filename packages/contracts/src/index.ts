@@ -231,6 +231,8 @@ export interface GameState {
   character: CharacterState;
   recovery: RecoveryState | null;
   season: Season;
+  /** The player's Vision (501) in their own words, e.g. "Strong at 84. Free with my time. Surrounded by people I love." */
+  vision?: string;
   /** Player-chosen level names. Missing levels use the defaults (Foundations, Momentum, Mastery, Legacy, The Vision). */
   levelNames?: Partial<Record<Level, string>>;
   /** Date of the last completed Sunday review; one review pays per Monday–Sunday week. */
@@ -383,4 +385,11 @@ export interface SceneHandle {
   dispose(): void;
 }
 
-export type CreateScene = (container: HTMLElement, options: { assetsBaseUrl: string }) => Promise<SceneHandle>;
+export type CreateScene = (
+  container: HTMLElement,
+  options: {
+    assetsBaseUrl: string;
+    /** Rendering quality. "auto" (default) measures the first frames and drops to "low" on slow devices. */
+    quality?: "auto" | "high" | "low";
+  },
+) => Promise<SceneHandle>;

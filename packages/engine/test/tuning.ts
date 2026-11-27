@@ -1,10 +1,7 @@
 import { DEFAULT_RULES, type RulesConfig } from "@second-half/contracts";
 
 /**
- * Proposed health numbers (see the simulation PR). DEFAULT_RULES is owned by the lead; this is the candidate
- * the balance targets are checked against until the lead adopts or changes it.
+ * The rule set the balance targets are checked against. It is DEFAULT_RULES now that the tuned numbers are
+ * applied; to try a change, override fields here and run the balance suite.
  */
-export const PROPOSED_RULES: RulesConfig = {
-  ...DEFAULT_RULES,
-  health: { ...DEFAULT_RULES.health, missCost: 3, doubleMissFactor: 1.5, fullRestore: 5, minimumRestore: 3, setbackDamage: 7 },
-};
+export const PROPOSED_RULES: RulesConfig = { ...DEFAULT_RULES };

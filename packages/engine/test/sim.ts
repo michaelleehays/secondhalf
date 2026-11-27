@@ -4,7 +4,7 @@
  */
 import { DEFAULT_RULES, type CheckInEntry, type GameEvent, type GameState, type IsoDate, type ResistanceId, type RulesConfig } from "@second-half/contracts";
 import { SAMPLE_STATE } from "@second-half/contracts/fixtures";
-import { closeDay, closeReview, closeWeek } from "../src/index";
+import { closeDay, closeReview, closeWeek, verifyAchievement } from "../src/index";
 
 /** mulberry32: small, fast, seeded. No Math.random anywhere in the simulation. */
 export function rng(seed: number) {
@@ -31,8 +31,10 @@ export type Profile = (day: number) => DayPlan;
 
 const ALL_REASONS: [ResistanceId, number][] = [["fatigue", 1], ["no_time", 1], ["temptation", 1], ["stress", 1], ["avoidance", 1]];
 
-export const PROFILES: Record<"consistent" | "struggling" | "collapse", Profile> = {
+export const PROFILES: Record<"consistent" | "steady" | "struggling" | "collapse", Profile> = {
   consistent: () => ({ done: 0.9, full: 0.8, reasons: ALL_REASONS }),
+  // The founder's growth line: about 70% grows.
+  steady: () => ({ done: 0.7, full: 0.7, reasons: ALL_REASONS }),
   struggling: () => ({ done: 0.5, full: 0.5, reasons: [["fatigue", 0.45], ["no_time", 0.45], ["stress", 0.1]] }),
   // Two great months, a month of misses, then a steady recovery.
   collapse: (day) =>
@@ -69,7 +71,7 @@ function retarget(state: GameState): GameState {
 
 export interface Step {
   date: IsoDate;
-  kind: "day" | "week" | "review";
+  kind: "day" | "week" | "review" | "verify";
   before: GameState;
   state: GameState;
   events: GameEvent[];
@@ -113,6 +115,9 @@ export function simulate(profile: Profile, seed: number, options: SimOptions = {
   for (let i = 0; i < days; i++) {
     const date = addDays(start.today, i + 1);
     const plan = profile(i);
+    // A milestone that reached the verify point is confirmed the next morning (the player ran the 5K).
+    const ready = steps.flatMap((s) => (s.date === addDays(date, -1) ? s.events : [])).flatMap((e) => (e.type === "ready_to_verify" ? [e.goalId] : []));
+    for (const goalId of ready) push("verify", date, verifyAchievement(state, goalId, date, "simulated", config));
     state = retarget(state);
     const entries: CheckInEntry[] = state.habits
       .filter((h) => state.modes[h.area] !== "rest")
@@ -157,6 +162,8 @@ export function summary(steps: Step[]) {
     strengthDay84: strength[83] ?? null,
     strengthMeanLate: mean(strength.slice(84)),
     strengthEnd: last.character.strength,
+    /** Strength lost over days 61-91 (the collapse profile's month of misses). */
+    strengthDrop61to91: Math.round(((strength[60] ?? 0) - (strength[90] ?? 0)) * 10) / 10,
     setbacks: count("setback"),
     setbacksPerWeek: Math.round((setbackDays.reduce((a, b) => a + b, 0) / (days.length / 7)) * 100) / 100,
     rules: count("rule_adjusted"),

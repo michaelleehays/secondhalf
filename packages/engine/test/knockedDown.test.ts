@@ -10,6 +10,8 @@ const missed = (habitId: string): CheckInEntry => ({ habitId, result: "missed", 
 const addDays = (d: string, n: number) => new Date(Date.parse(d) + n * 864e5).toISOString().slice(0, 10);
 /** Auto Recovery off (already used this season) so these tests see the knocked-down rules on their own. */
 const season = { ...SAMPLE_STATE.season, autoRecoveryUsed: true };
+/** Health one miss away from knocked down, whatever the tuning. */
+const ONE_MISS_FROM_DOWN = R.health.knockedDownAt + R.health.missCost - 1;
 const at = (health: number, knockedDown?: { since: string; plays: number }): GameState => ({
   ...SAMPLE_STATE,
   season,
@@ -18,7 +20,7 @@ const at = (health: number, knockedDown?: { since: string; plays: number }): Gam
 
 describe("Knocked down", () => {
   it("knocked down: reaching knockedDownAt sets character.knockedDown and emits knocked_down", () => {
-    const { state, events } = closeDay(at(4), { date: DATE, entries: [missed("run")] });
+    const { state, events } = closeDay(at(ONE_MISS_FROM_DOWN), { date: DATE, entries: [missed("run")] });
     expect(state.character.health).toBe(0);
     expect(state.character.knockedDown).toEqual({ since: DATE, plays: 0 });
     expect(events).toContainEqual({ type: "knocked_down" });
@@ -59,7 +61,7 @@ describe("Knocked down", () => {
   });
 
   it("knocked down at 0 health starts auto Recovery when it is still available this season", () => {
-    const fresh = { ...at(4), season: SAMPLE_STATE.season };
+    const fresh = { ...at(ONE_MISS_FROM_DOWN), season: SAMPLE_STATE.season };
     const { state, events } = closeDay(fresh, { date: DATE, entries: [missed("run")] });
     expect(state.character.knockedDown).toBeDefined();
     expect(state.recovery?.cause).toBe("auto");
@@ -104,12 +106,14 @@ describe("Maintenance cap", () => {
   });
 
   it("maintenance cap: closeDay emits it on a night a system goal locks in past the cap", () => {
-    // people-101 is a system goal in progress at 0.5; it locks in tonight and brings its maintenance habits into the count.
-    const start: GameState = {
-      ...withMaint(maint(R.maintenance.maxWeeklyHabits + 1, "people-101")),
-      goals: SAMPLE_STATE.goals.map((g) => (g.id === "people-101" ? { ...g, progress: 1 - R.progress.perFull } : g)),
+    // people-101 (system) has a program on its last week; tonight's check-in finishes it and locks the goal in.
+    const program = {
+      id: "dinners", goalId: "people-101", weeks: [{ index: 1, sessions: ["a", "b", "c", "d"] }], currentWeek: 1,
+      done: [true, true, false, false], threshold: 3,
     };
-    const { events } = closeDay(start, { date: DATE, entries: [full("reach-out")] });
+    const start: GameState = { ...withMaint(maint(R.maintenance.maxWeeklyHabits + 1, "people-101")), programs: [program] };
+    const { state, events } = closeDay(start, { date: DATE, entries: [full("reach-out")] });
+    expect(state.goals.find((g) => g.id === "people-101")!.status).toBe("locked_in");
     expect(events).toContainEqual(expect.objectContaining({ type: "maintenance_cap", count: R.maintenance.maxWeeklyHabits + 1 }));
     // A normal night over the cap does not repeat it.
     expect(closeDay(withMaint(maint(R.maintenance.maxWeeklyHabits + 1)), { date: DATE, entries: [full("run")] }).events.some((e) => e.type === "maintenance_cap")).toBe(false);

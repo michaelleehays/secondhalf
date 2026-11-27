@@ -7,6 +7,9 @@
   "alwaysOn": [
     "body",
     "eyes",
+    "eyebrows",
+    "eyelashes",
+    "teeth",
     "shorts"
   ],
   "kit": {
@@ -17,15 +20,27 @@
   },
   "files": {
     "athlete.glb": {
-      "bytes": 1740252,
+      "bytes": 4595880,
       "meshes": {
         "body": {
           "blenderVertices": 13380,
           "triangles": 26756
         },
         "eyes": {
-          "blenderVertices": 144,
-          "triangles": 280
+          "blenderVertices": 96,
+          "triangles": 172
+        },
+        "eyebrows": {
+          "blenderVertices": 9468,
+          "triangles": 14202
+        },
+        "eyelashes": {
+          "blenderVertices": 11088,
+          "triangles": 16632
+        },
+        "teeth": {
+          "blenderVertices": 3868,
+          "triangles": 7120
         },
         "shorts": {
           "blenderVertices": 517,
@@ -47,18 +62,56 @@
           "blenderVertices": 818,
           "triangles": 1479
         }
+      },
+      "textures": {
+        "Skin": {
+          "skin_male_african_middleage.png": [
+            2048,
+            2048
+          ],
+          "skin_male_african_middleage_NRM.png": [
+            2048,
+            2048
+          ]
+        },
+        "Eyes": {
+          "brownlight_eye.png": [
+            512,
+            512
+          ]
+        },
+        "Eyebrows": {},
+        "Eyelashes": {},
+        "Teeth": {
+          "teeth.png": [
+            512,
+            512
+          ]
+        }
       }
     },
     "athlete_mobile.glb": {
-      "bytes": 617372,
+      "bytes": 1031628,
       "meshes": {
         "body": {
           "blenderVertices": 4015,
           "triangles": 8026
         },
         "eyes": {
-          "blenderVertices": 144,
-          "triangles": 280
+          "blenderVertices": 96,
+          "triangles": 172
+        },
+        "eyebrows": {
+          "blenderVertices": 124,
+          "triangles": 192
+        },
+        "eyelashes": {
+          "blenderVertices": 250,
+          "triangles": 368
+        },
+        "teeth": {
+          "blenderVertices": 1114,
+          "triangles": 1780
         },
         "shorts": {
           "blenderVertices": 273,
@@ -79,6 +132,42 @@
         "kit_wraps": {
           "blenderVertices": 356,
           "triangles": 590
+        }
+      },
+      "textures": {
+        "Skin": {
+          "skin_male_african_middleage.png": [
+            1024,
+            1024
+          ],
+          "skin_male_african_middleage_NRM.png": [
+            1024,
+            1024
+          ]
+        },
+        "Eyes": {
+          "brownlight_eye.png": [
+            256,
+            256
+          ]
+        },
+        "Teeth": {
+          "teeth.png": [
+            256,
+            256
+          ]
+        },
+        "Eyebrows": {
+          "eyebrow001.png": [
+            256,
+            256
+          ]
+        },
+        "Eyelashes": {
+          "eyelashes01.png": [
+            256,
+            256
+          ]
         }
       }
     }
