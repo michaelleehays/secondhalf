@@ -231,6 +231,11 @@ export interface GameState {
   character: CharacterState;
   recovery: RecoveryState | null;
   season: Season;
+  /**
+   * Notable moments, oldest first, trimmed to rules.journal.maxEntries: the history drawn as the trail up the
+   * mountain (locked in, verified, setbacks, at risk, lost ground, levels, recovery). Appended by the engine.
+   */
+  journal?: JournalEntry[];
   /** The player's Vision (501) in their own words, e.g. "Strong at 84. Free with my time. Surrounded by people I love." */
   vision?: string;
   /** Player-chosen level names. Missing levels use the defaults (Foundations, Momentum, Mastery, Legacy, The Vision). */
@@ -239,6 +244,30 @@ export interface GameState {
   lastReviewOn?: IsoDate;
   /** Areas with any done/minimum habit since the week started. */
   weekProgress: Partial<Record<AreaId, boolean>>;
+}
+
+/* ---------- Journal: notable moments kept for the trail ---------- */
+
+export type JournalKind =
+  | "locked_in"
+  | "verified"
+  | "ready_to_verify"
+  | "setback"
+  | "at_risk"
+  | "risk_cleared"
+  | "ground_lost"
+  | "level_up"
+  | "level_lost"
+  | "recovery_started"
+  | "recovery_ended";
+
+export interface JournalEntry {
+  date: IsoDate;
+  kind: JournalKind;
+  area?: AreaId;
+  goalId?: string;
+  /** Coach-voice line shown on the trail, e.g. "Fatigue setback: −7 health". */
+  label: string;
 }
 
 /* ---------- Events: what happened, for the UI and the scene to show ---------- */
@@ -362,6 +391,19 @@ export interface WorldView {
   };
   resistance: { id: ResistanceId; strength: number; targetArea: AreaId; attackingGoalId?: string }[];
   inRecovery: boolean;
+  /** Level names to print on the mountain (defaults filled in). */
+  levelNames?: Record<Level, string>;
+  /** The section the player is working now: the trail is drawn up this slice. Filled by the engine. */
+  trail?: TrailView;
+}
+
+/** The path up one section of the mountain: past moments below the athlete, future milestones above. */
+export interface TrailView {
+  area: AreaId;
+  /** One stop per level in this area, 101 at the bottom to 401 at the top. */
+  stops: { goalId: string; level: Exclude<Level, 5>; title: string; status: GoalStatus; progress: number; frozen: boolean }[];
+  /** Journal entries for this area, oldest first (the scene places them by goal and date). */
+  moments: JournalEntry[];
 }
 
 export type SceneTarget =
@@ -382,6 +424,11 @@ export interface SceneHandle {
    * Returns a function that unsubscribes the callback.
    */
   onSelect(cb: (target: SceneTarget & { level?: Level }) => void): () => void;
+  /**
+   * Screen space covered by app UI (e.g. an open sheet), in CSS pixels. The camera frames its subject in the
+   * remaining area, so the athlete stays visible beside or above a sheet.
+   */
+  setInsets?(insets: { top: number; right: number; bottom: number; left: number }): void;
   dispose(): void;
 }
 
