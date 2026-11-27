@@ -5,3 +5,7 @@ dist/
 !.env.example
 .DS_Store
 *.log
+
+# MakeHuman asset packs, fetched by assets/fetch_makehuman.sh (too large for git)
+assets/vendor/
+assets/blender/__pycache__/
