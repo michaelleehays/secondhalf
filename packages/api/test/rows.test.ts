@@ -11,6 +11,7 @@ function snapshotOf(s: GameState): GameSnapshot {
     profile: {
       id: s.userId, birth_year: s.birthYear, end_age: s.endAge, timezone: s.timezone, today: s.today,
       level: s.level, best_level: s.bestLevel ?? null, last_review_on: s.lastReviewOn ?? null,
+      level_names: s.levelNames ?? null,
       score: s.score, credits: s.credits, version: 0,
     },
     areas: Object.entries(s.modes).map(([area, mode]) => ({
@@ -19,6 +20,7 @@ function snapshotOf(s: GameState): GameSnapshot {
     goals: s.goals.map((g) => ({
       id: g.id, area: g.area, level: g.level, title: g.title, kind: g.kind, status: g.status, progress: g.progress,
       risk: g.risk, frozen: g.frozen, locked_in_on: g.lockedInOn ?? null, last_quarterly_check: g.lastQuarterlyCheck ?? null,
+      verification: g.verification ?? null, verified_on: g.verifiedOn ?? null,
     })),
     programs: s.programs.map((p) => ({
       id: p.id, goal_id: p.goalId, weeks: p.weeks, current_week: p.currentWeek, done: p.done, threshold: p.threshold,
@@ -55,7 +57,9 @@ function snapshotOf(s: GameState): GameSnapshot {
 
 const RICH: GameState = {
   ...SAMPLE_STATE,
-  goals: SAMPLE_STATE.goals.map((g) => (g.id === "body-101" ? { ...g, lockedInOn: "2026-09-01" } : g)),
+  goals: SAMPLE_STATE.goals.map((g) =>
+    g.id === "body-101" ? { ...g, lockedInOn: "2026-09-01", verification: "Run a timed 5K", verifiedOn: "2026-09-01" } : g,
+  ),
   habits: SAMPLE_STATE.habits.map((h) =>
     h.id === "run"
       ? { ...h, history: [{ date: "2026-11-24", result: "missed", reason: "fatigue", graced: true }, { date: "2026-11-25", result: "full" }] }
@@ -67,6 +71,7 @@ const RICH: GameState = {
   weekProgress: { body: true },
   bestLevel: 3,
   lastReviewOn: "2026-11-22",
+  levelNames: { 1: "Getting started", 3: "The long game" },
   character: { ...SAMPLE_STATE.character, health: 0, knockedDown: { since: "2026-11-25", plays: 1 } },
 };
 
@@ -93,6 +98,8 @@ describe("toGameState", () => {
     const { bestLevel: _best, ...noBest } = SAMPLE_STATE;
     expect("bestLevel" in toGameState(snapshotOf(noBest))).toBe(false);
     expect("lastReviewOn" in loaded).toBe(false);
+    expect("levelNames" in loaded).toBe(false);
+    expect("verification" in goal || "verifiedOn" in goal).toBe(false);
     const day = toGameState(snapshotOf(RICH)).habits.find((h) => h.id === "run")!.history[1]!;
     expect("reason" in day).toBe(false);
     expect("graced" in day).toBe(false);

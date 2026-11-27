@@ -1,7 +1,7 @@
 -- save_step_result: a malformed state is refused whole and leaves saved data intact.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(11);
+select plan(17);
 
 insert into auth.users (id, email) values ('dddddddd-0000-0000-0000-000000000000', 'd@example.test');
 
@@ -52,6 +52,24 @@ select is((select count(*)::int from public.habits where archived_at is null), 1
 select is((select count(*)::int from public.programs), 1, 'programs are intact');
 select is((select count(*)::int from public.game_plans), 1, 'game plans are intact');
 select is((select count(*)::int from public.check_ins), 1, 'check-ins are intact');
+
+-- A retired habit (removed from state.habits by the engine's retire_habit edit) is archived, not deleted.
+select lives_ok($$select public.save_step_result('dddddddd-0000-0000-0000-000000000000',
+                  (select jsonb_set(s, '{habits}', '[]') from good), '[]', '[]')$$,
+                'a save without the habit succeeds');
+select isnt((select archived_at from public.habits where id = 'run'), null, 'the retired habit is archived');
+select is((select count(*)::int from public.check_ins where habit_id = 'run'), 1, 'its check-ins stay as history');
+
+-- Level names: keys are levels 1..5 and values are names.
+select lives_ok($$select public.save_step_result('dddddddd-0000-0000-0000-000000000000',
+                  (select jsonb_set(s, '{levelNames}', '{"1": "Getting started"}') from good), '[]', '[]')$$,
+                'level names save');
+select throws_ok($$select public.save_step_result('dddddddd-0000-0000-0000-000000000000',
+                   (select jsonb_set(s, '{levelNames}', '{"7": "Beyond"}') from good), '[]', '[]')$$,
+                 '23514', null, 'a level name for a level that does not exist is refused');
+select throws_ok($$select public.save_step_result('dddddddd-0000-0000-0000-000000000000',
+                   (select jsonb_set(s, '{levelNames}', '{"2": ""}') from good), '[]', '[]')$$,
+                 '23514', null, 'an empty level name is refused');
 
 select * from finish();
 rollback;
