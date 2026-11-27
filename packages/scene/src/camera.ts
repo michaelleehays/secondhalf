@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import type { Level, SceneTarget } from "@second-half/contracts";
-import { athleteSpot, heightAt, sectorMidRad } from "./layout";
+import type { AreaId, Level, SceneTarget } from "@second-half/contracts";
+import { athleteSpot, heightAt, resistanceSpot, sectorMidRad } from "./layout";
 
 export interface CameraShot {
   pos: THREE.Vector3;
@@ -15,6 +15,8 @@ export interface ShotContext {
   level: Level;
   /** The athlete is lying down, so the athlete shot frames a wide, low body. */
   athleteDown: boolean;
+  /** For a Resistance target: the area its marker stands in (from the latest view), if known. */
+  resistanceArea?: AreaId;
 }
 
 /** Half-width (metres) to keep in frame around a lying athlete. */
@@ -77,6 +79,19 @@ export function shotFor(target: SceneTarget, ctx: ShotContext, out?: CameraShot)
       shot.look.set(0, top - 0.5, 0);
       break;
     }
+    case "resistance": {
+      if (!ctx.resistanceArea) return shotFor({ kind: "home" }, ctx, shot);
+      // From outside the mountain, looking past the marker at the slice it presses on.
+      const [x, y, z] = resistanceSpot(ctx.resistanceArea);
+      const r = Math.hypot(x, z);
+      shot.pos.set((x / r) * (r + 15), y + 10, (z / r) * (r + 15));
+      shot.look.set((x / r) * (r - 5), y + 1.5, (z / r) * (r - 5));
+      break;
+    }
+    default: {
+      const unhandled: never = target;
+      void unhandled;
+    }
   }
   return shot;
 }
@@ -100,15 +115,28 @@ export class CameraRig {
   private placed = false;
   private shot: CameraShot = { pos: new THREE.Vector3(), look: new THREE.Vector3() };
   /** What the cached shot was computed for; recomputed only when one of these changes. */
-  private shotFor: { target: SceneTarget | null; aspect: number; fov: number; level: number; down: boolean } = {
+  private shotFor: { target: SceneTarget | null; aspect: number; fov: number; level: number; down: boolean; area: AreaId | undefined } = {
     target: null,
     aspect: 0,
     fov: 0,
     level: 0,
     down: false,
+    area: undefined,
   };
 
-  constructor(readonly camera: THREE.PerspectiveCamera) {}
+  /** Share of the screen height the focused subject sits from the top (0.5 = centre), eased. */
+  private subjectY = 0.5;
+
+  /**
+   * `resistanceArea` looks up where a Resistance marker stands, from the latest view.
+   * `focusedSubjectY` is where a focused subject sits (share of height from the top). Below 0.5
+   * keeps it clear of a bottom sheet the app opens over the lower part of the screen.
+   */
+  constructor(
+    readonly camera: THREE.PerspectiveCamera,
+    private readonly resistanceArea: (id: string) => AreaId | undefined = () => undefined,
+    private readonly focusedSubjectY = 0.5,
+  ) {}
 
   focus(target: SceneTarget) {
     this.target = target;
@@ -123,6 +151,24 @@ export class CameraRig {
     this.yawGoal = Math.max(-MAX_YAW, Math.min(MAX_YAW, yaw));
   }
 
+  /**
+   * Slides the projection so the focused subject sits at `focusedSubjectY` instead of the centre
+   * (home stays centred). Uses a view offset, so picking through Raycaster stays exact.
+   */
+  private updateSubjectOffset(dt: number, snap: boolean) {
+    const goal = this.target.kind === "home" ? 0.5 : this.focusedSubjectY;
+    const next = snap ? goal : this.subjectY + (goal - this.subjectY) * (1 - Math.pow(0.04, dt));
+    if (Math.abs(next - this.subjectY) < 1e-4 && !snap) return;
+    this.subjectY = Math.abs(next - goal) < 1e-4 ? goal : next;
+    const shift = 0.5 - this.subjectY; // share of the height to move the image up
+    if (Math.abs(shift) < 1e-4) this.camera.clearViewOffset();
+    else {
+      const h = 1000;
+      const w = h * this.camera.aspect;
+      this.camera.setViewOffset(w, h, 0, shift * h, w, h);
+    }
+  }
+
   /** Jolt the camera; decays over about 0.4 s. */
   shake(amount = 1) {
     this.shakeAmt = Math.max(this.shakeAmt, amount);
@@ -132,14 +178,17 @@ export class CameraRig {
   update(dt: number, level: Level, athleteDown: boolean, snap = false) {
     const c = this.shotFor;
     const { aspect, fov } = this.camera;
-    if (c.target !== this.target || c.aspect !== aspect || c.fov !== fov || c.level !== level || c.down !== athleteDown) {
-      shotFor(this.target, { aspect, fov, level, athleteDown }, this.shot);
+    const area = this.target.kind === "resistance" ? this.resistanceArea(this.target.id) : undefined;
+    if (c.target !== this.target || c.aspect !== aspect || c.fov !== fov || c.level !== level || c.down !== athleteDown || c.area !== area) {
+      shotFor(this.target, area ? { aspect, fov, level, athleteDown, resistanceArea: area } : { aspect, fov, level, athleteDown }, this.shot);
       c.target = this.target;
       c.aspect = aspect;
       c.fov = fov;
       c.level = level;
       c.down = athleteDown;
+      c.area = area;
     }
+    this.updateSubjectOffset(dt, snap);
     const { pos, look } = this.shot;
     const k = snap || !this.placed ? 1 : 1 - Math.pow(0.04, dt);
     this.yaw = snap ? this.yawGoal : this.yaw + (this.yawGoal - this.yaw) * (1 - Math.pow(0.02, dt));
