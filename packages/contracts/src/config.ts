@@ -45,10 +45,23 @@ export interface RulesConfig {
     minimumGain: number;
   };
   grace: { perMonth: number; maxHeld: number };
-  resistance: { max: number; setbackAt: number; gamePlanDamageFactor: number; maxEquippedPlans: number };
+  resistance: {
+    max: number;
+    setbackAt: number;
+    /** Strength a Resistance drops to right after it causes a setback, so it cannot hit every day in a row. */
+    afterSetback: number;
+    gamePlanDamageFactor: number;
+    maxEquippedPlans: number;
+  };
   risk: {
-    /** Misses beyond grace within 7 days that put a system goal at risk. */
+    /** Misses beyond grace within `patternDays` days that put a system goal at risk. */
     missesToTrigger: number;
+    /** Window, in days, for the at-risk miss pattern. */
+    patternDays: number;
+    /** Risk (0..100) a goal starts at when it goes at risk. */
+    onTrigger: number;
+    /** Risk added to an at-risk goal in the area a setback targets. */
+    setbackPressure: number;
     perBadWeek: number;
     fullCleanDay: number;
     minimumCleanDay: number;
@@ -61,6 +74,8 @@ export interface RulesConfig {
     perFull: number;
     /** Goal progress added by one minimum check-in. */
     perMinimum: number;
+    /** Progress removed from the in-progress goal in a setback's area when nothing there is at risk. */
+    setbackLoss: number;
   };
   /** Days of check-in history kept per habit. */
   history: { days: number };
@@ -97,10 +112,10 @@ export const DEFAULT_RULES: RulesConfig = {
   },
   strength: { max: 100, idleWeekCost: 3, fullGain: 1, minimumGain: 0.5 },
   grace: { perMonth: 2, maxHeld: 4 },
-  resistance: { max: 5, setbackAt: 5, gamePlanDamageFactor: 0.5, maxEquippedPlans: 3 },
-  risk: { missesToTrigger: 3, perBadWeek: 25, fullCleanDay: 20, minimumCleanDay: 10, lostRestartProgress: 0.5 },
+  resistance: { max: 5, setbackAt: 5, afterSetback: 3, gamePlanDamageFactor: 0.5, maxEquippedPlans: 3 },
+  risk: { missesToTrigger: 3, patternDays: 7, onTrigger: 25, setbackPressure: 10, perBadWeek: 25, fullCleanDay: 20, minimumCleanDay: 10, lostRestartProgress: 0.5 },
   levels: { goalsToClear: 4 },
-  progress: { idleWeekDecay: 0.08, perFull: 0.07, perMinimum: 0.03 },
+  progress: { idleWeekDecay: 0.08, perFull: 0.07, perMinimum: 0.03, setbackLoss: 0.05 },
   history: { days: 14 },
   maintenance: { maxWeeklyHabits: 6 },
   recovery: { healthBelow: 25, atRiskGoals: 2, days: 7, daysNeeded: 5, restoreHealth: 30 },
