@@ -13,6 +13,9 @@ import {
 } from "@second-half/contracts";
 import { withLevels } from "./levels";
 import { daysBetween } from "./resistance";
+import { maintenanceCap } from "./maintenance";
+import { withAutoRecovery } from "./recovery";
+import { repeatUnfinishedWeeks } from "./programs";
 import { raiseRisk } from "./risk";
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -41,14 +44,19 @@ const missedBeyondGraceThisWeek = (goal: Goal, habits: Habit[], weekEnding: IsoD
  *    - system, locked in: in full if its habits made progress this week, otherwise nothing.
  * 3. At-risk goals whose habits missed beyond grace this week: risk + `risk.perBadWeek` (100 → lost ground).
  * 4. Grace refills to `grace.perMonth` (never taking away bought days) when `weekEnding` starts a new month.
- * 5. `weekProgress` resets, levels are checked, and `today` becomes `weekEnding`.
+ * 5. Program weeks short of their threshold start again (not in Recovery). `weekProgress` resets, levels are checked, and `today` becomes `weekEnding`.
+ * 6. `maintenance_cap` if locked-in system goals need more than `maintenance.maxWeeklyHabits` maintenance habits.
+ * 7. Recovery may start automatically (see `withAutoRecovery`).
+ *
+ * In Recovery, idle-area penalties (1) and risk escalation (3) are frozen; dividends still pay.
  */
 export function closeWeek(state: GameState, weekEnding: IsoDate, config: RulesConfig = DEFAULT_RULES): StepResult {
   const events: GameEvent[] = [];
   const mult = config.levelMultiplier[state.level];
 
   // 1. Idle areas.
-  const idle: AreaId[] = AREAS.filter((a) => !state.weekProgress[a] && state.modes[a] !== "rest");
+  const inRecovery = state.recovery !== null;
+  const idle: AreaId[] = inRecovery ? [] : AREAS.filter((a) => !state.weekProgress[a] && state.modes[a] !== "rest");
   let goals = state.goals;
   for (const area of idle) {
     const target = goals.find((g) => g.area === area && g.level === state.level && g.status === "in_progress" && !g.frozen);
@@ -91,7 +99,7 @@ export function closeWeek(state: GameState, weekEnding: IsoDate, config: RulesCo
 
   // 3. Risk escalation.
   goals = goals.map((goal) =>
-    goal.status === "at_risk" && !goal.frozen && missedBeyondGraceThisWeek(goal, state.habits, weekEnding)
+    !inRecovery && goal.status === "at_risk" && !goal.frozen && missedBeyondGraceThisWeek(goal, state.habits, weekEnding)
       ? raiseRisk(goal, config.risk.perBadWeek, events, config)
       : goal,
   );
@@ -103,7 +111,7 @@ export function closeWeek(state: GameState, weekEnding: IsoDate, config: RulesCo
     : state.character.graceDaysLeft;
 
   // 5. Reset, levels, date.
-  return withLevels(
+  const result = withLevels(
     {
       state: {
         ...state,
@@ -113,9 +121,12 @@ export function closeWeek(state: GameState, weekEnding: IsoDate, config: RulesCo
         resistance,
         character: { ...state.character, strength, graceDaysLeft },
         weekProgress: {},
+        programs: inRecovery ? state.programs : repeatUnfinishedWeeks(state.programs),
       },
       events,
     },
     config,
   );
+  const capped = maintenanceCap(result.state, config);
+  return withAutoRecovery(capped ? { ...result, events: [...result.events, capped] } : result, weekEnding, config);
 }
