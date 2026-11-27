@@ -2,15 +2,12 @@ import { DEFAULT_RULES, type GameState, type IsoDate, type ResistanceId, type Ru
 import { SAMPLE_STATE } from "@second-half/contracts/fixtures";
 import { addDays } from "./dates";
 
-/** The game's premise: you start at halftime. */
-export const START_AGE = 42;
-
 export interface NewPlayerOptions {
   userId: string;
   /** The device's date; the new game's last closed day is the day before, so tonight's check-in is open. */
   today: IsoDate;
   timezone: string;
-  /** Defaults to the year the player is START_AGE. Onboarding will ask. */
+  /** Defaults to the year the player is rules.life.startAge. Onboarding will ask. */
   birthYear?: number;
   rules?: RulesConfig;
   /** Where the goal and habit titles come from until onboarding builds Level 101 from the player's own goals. */
@@ -32,7 +29,7 @@ export function newPlayerState(opts: NewPlayerOptions): GameState {
 
   return {
     userId: opts.userId,
-    birthYear: opts.birthYear ?? year - START_AGE,
+    birthYear: opts.birthYear ?? year - rules.life.startAge,
     endAge: rules.life.defaultEndAge,
     today: addDays(opts.today, -1),
     timezone: opts.timezone,
@@ -50,7 +47,7 @@ export function newPlayerState(opts: NewPlayerOptions): GameState {
     resistance,
     gamePlans: t.gamePlans.map((p) => ({ ...p, equipped: false })),
     rules: [],
-    character: { health: rules.health.start, strength: Math.round(rules.strength.max / 2), graceDaysLeft: rules.grace.perMonth },
+    character: { health: rules.health.start, strength: rules.strength.start, graceDaysLeft: rules.grace.perMonth },
     recovery: null,
     season: { index: 1, startsOn: opts.today, focus: [...t.season.focus], autoRecoveryUsed: false, lifeEventPauseUsed: false },
     journal: [],

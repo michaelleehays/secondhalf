@@ -3,7 +3,7 @@ import { AREAS, DEFAULT_RULES, type CheckIn, type GameState, type StepResult } f
 import { createEngine } from "@second-half/engine";
 import { GameApiError, STALE_SAVE, toSaveArgs, type GameApi } from "@second-half/api";
 import { StaleGameError } from "../src/lib/adapter";
-import { newPlayerState, START_AGE } from "../src/lib/newPlayer";
+import { newPlayerState } from "../src/lib/newPlayer";
 import { closedOnFor, createRemoteAdapter } from "../src/lib/remoteAdapter";
 import { supabaseConfig } from "../src/lib/supabase";
 
@@ -45,7 +45,8 @@ describe("new player", () => {
   it("starts at Level 101 with nothing locked in and tonight's check-in open", () => {
     expect(s.level).toBe(1);
     expect(s.score).toBe(0);
-    expect(s.birthYear).toBe(2026 - START_AGE);
+    expect(s.birthYear).toBe(2026 - DEFAULT_RULES.life.startAge);
+    expect(s.character.strength).toBe(DEFAULT_RULES.strength.start);
     expect(s.today).toBe("2026-11-26");
     expect(s.character.health).toBe(DEFAULT_RULES.health.start);
     expect(s.goals.filter((g) => g.level === 1).map((g) => g.status)).toEqual(["open", "open", "open", "open", "open"]);
