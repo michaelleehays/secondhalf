@@ -15,6 +15,7 @@ import {
   type StepResult,
 } from "@second-half/contracts";
 import { activeRules, adjustmentFor, daysBetween, hasEffect, reportsIn, usualMissOn } from "./resistance";
+import { withLevels } from "./levels";
 import { applyDayRisk } from "./risk";
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -43,7 +44,7 @@ function earnsProgress(goal: Goal, state: GameState): boolean {
  *   missed knocks that Resistance down by 1. A Resistance reported while at `setbackAt` causes a setback
  *   (halved by an equipped game plan) and, if no rule for it is in force, a rule adjustment; it then drops
  *   to `afterSetback`, so it cannot hit every day in a row.
- * - At risk and lost ground: see `applyDayRisk`.
+ * - At risk and lost ground: see `applyDayRisk`. Levels are checked last: see `checkLevels`.
  * - Rule adjustments in force change how entries count (see `RuleEffect`).
  * - Health and strength changes are summed and clamped once, so entry order never matters.
  * - Score is never taken away.
@@ -211,7 +212,7 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
   // At risk, clean days, setback pressure and lost ground.
   const goals = applyDayRisk(progressed, { state, habits, entries, countedFull, graced, setbackAreas, date }, events, config);
 
-  return {
+  return withLevels({
     state: {
       ...state,
       today: date,
@@ -225,5 +226,5 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
       weekProgress,
     },
     events,
-  };
+  }, config);
 }
