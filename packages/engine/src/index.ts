@@ -32,6 +32,9 @@ export function createEngine(config: RulesConfig = DEFAULT_RULES): Engine {
     verifyAchievement: () => {
       throw new Error("engine.verifyAchievement is not implemented yet (workstream A)");
     },
+    applyPlanEdit: () => {
+      throw new Error("engine.applyPlanEdit is not implemented yet (workstream A)");
+    },
     quarterlyCheck: (state, goalId, passed, date) => quarterlyCheck(state, goalId, passed, date, config),
     projectedFinalScore: (state) => projectedFinalScore(state, config),
     toWorldView,
