@@ -273,6 +273,8 @@ export interface Engine {
 /* ---------- Scene interface (implemented by packages/scene) ---------- */
 
 export interface CellView {
+  /** Id of the goal this cell shows; events and attackingGoalId refer to it. */
+  goalId: string;
   area: AreaId;
   level: Exclude<Level, 5>;
   status: GoalStatus;
@@ -297,7 +299,12 @@ export interface WorldView {
   inRecovery: boolean;
 }
 
-export type SceneTarget = { kind: "home" } | { kind: "athlete" } | { kind: "area"; area: AreaId } | { kind: "vision" };
+export type SceneTarget =
+  | { kind: "home" }
+  | { kind: "athlete" }
+  | { kind: "area"; area: AreaId }
+  | { kind: "vision" }
+  | { kind: "resistance"; id: ResistanceId };
 
 export interface SceneHandle {
   update(view: WorldView): void;
