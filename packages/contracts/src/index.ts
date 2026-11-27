@@ -292,8 +292,12 @@ export interface SceneHandle {
   /** Animate an event (setback, locked_in, level_lost...). */
   play(event: GameEvent): void;
   focus(target: SceneTarget): void;
-  /** Called when the user taps the athlete, an area cell or the summit. */
-  onSelect(cb: (target: SceneTarget & { level?: Level }) => void): void;
+  /**
+   * Called when the user taps the athlete, an area cell (with its level), the summit ("vision"),
+   * or empty ground outside the mountain ("home", meaning: go back to the full view).
+   * Returns a function that unsubscribes the callback.
+   */
+  onSelect(cb: (target: SceneTarget & { level?: Level }) => void): () => void;
   dispose(): void;
 }
 
