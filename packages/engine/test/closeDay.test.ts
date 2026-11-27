@@ -42,7 +42,7 @@ describe("closeDay", () => {
     const { state, events } = day(SAMPLE_STATE, full("run"));
     expect(state.score).toBe(SAMPLE_STATE.score + 19);
     expect(state.credits).toBe(SAMPLE_STATE.credits + 10);
-    expect(events).toContainEqual({ type: "points", score: 19, credits: 10, reason: "habit" });
+    expect(events).toContainEqual({ type: "points", score: 19, credits: 10, reason: "habit", sourceId: "run" });
   });
 
   it("minimum habit earns minimum points times the level multiplier, and minimum credits (Level 201: 6 x 1.25 = 8)", () => {
@@ -209,7 +209,7 @@ describe("closeDay", () => {
     expect(g.lockedInOn).toBe(DATE);
     const bonus = Math.round(R.points.goalLockedInPerLevel * 1 * mult);
     expect(events).toContainEqual({ type: "locked_in", goalId: "people-101" });
-    expect(events).toContainEqual({ type: "points", score: bonus, credits: R.credits.goalLockedInPerLevel * 1, reason: "goal_locked_in" });
+    expect(events).toContainEqual({ type: "points", score: bonus, credits: R.credits.goalLockedInPerLevel * 1, reason: "goal_locked_in", sourceId: "people-101" });
     expect(state.score).toBe(SAMPLE_STATE.score + 8 + bonus);
   });
 

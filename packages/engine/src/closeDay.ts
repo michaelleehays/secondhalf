@@ -115,7 +115,7 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
     const earned = Math.round((full ? config.credits.habitFull : config.credits.habitMinimum) * creditMult);
     score += points;
     credits += earned;
-    events.push({ type: "points", score: points, credits: earned, reason: "habit" });
+    events.push({ type: "points", score: points, credits: earned, reason: "habit", sourceId: habit.id });
 
     health.habit += full ? config.health.fullRestore : config.health.minimumRestore;
     strengthGain += full ? config.strength.fullGain : config.strength.minimumGain;
@@ -204,7 +204,7 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
     score += bonus;
     credits += bonusCredits;
     events.push({ type: "locked_in", goalId: goal.id });
-    events.push({ type: "points", score: bonus, credits: bonusCredits, reason: "goal_locked_in" });
+    events.push({ type: "points", score: bonus, credits: bonusCredits, reason: "goal_locked_in", sourceId: goal.id });
     return { ...goal, progress: 1, status: "locked_in", risk: 0, lockedInOn: date };
   });
 

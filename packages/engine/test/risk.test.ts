@@ -42,6 +42,13 @@ describe("At risk and lost ground", () => {
     expect(goal(day(start, missed("meditate")).state, "mind-101").status).toBe("locked_in");
   });
 
+  it("miss pattern: the window is risk.patternDays days", () => {
+    const start = withHistory(noGrace, "meditate", [miss("2026-11-19"), miss("2026-11-20")]);
+    const config = { ...R, risk: { ...R.risk, patternDays: 10 } };
+    const { state } = closeDay(start, { date: DATE, entries: [missed("meditate")] }, config);
+    expect(goal(state, "mind-101").status).toBe("at_risk");
+  });
+
   it("miss pattern: misses a grace day covered do not count, and are marked graced in history", () => {
     const start = withHistory(SAMPLE_STATE, "meditate", [miss("2026-11-24"), miss("2026-11-25")]);
     const { state } = day(start, missed("meditate"));

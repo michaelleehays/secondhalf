@@ -14,8 +14,6 @@ import { daysBetween } from "./resistance";
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 const tidy = (n: number) => Math.round(n * 1e9) / 1e9;
-/** The window of the at-risk miss pattern, from the design doc ("3+ misses in 7 days"). */
-const PATTERN_DAYS = 7;
 
 /** At 100 the goal is lost: dividends stop and it must be won back from `lostRestartProgress`. */
 function loseGround(goal: Goal, events: GameEvent[], config: RulesConfig): Goal {
@@ -57,7 +55,7 @@ export interface DayRiskInput {
  * - Clean day on an at-risk goal (at least one of its habits checked in, none missed): risk drops by
  *   `fullCleanDay` if every one was full, else `minimumCleanDay`. At 0 it is locked in again.
  * - Miss pattern, system goals only: a locked-in system goal goes at risk at `onTrigger` when a miss beyond
- *   grace today brings its habits to `missesToTrigger` such misses within 7 days. Milestones only go at
+ *   grace today brings its habits to `missesToTrigger` such misses within `patternDays` days. Milestones only go at
  *   risk from a failed quarterly check.
  * - Setback pressure: an at-risk goal in the targeted area gains `setbackPressure` risk; with none, the
  *   area's in-progress goal on the highest level reached loses `setbackLoss` progress.
@@ -87,7 +85,7 @@ export function applyDayRisk(goals: Goal[], input: DayRiskInput, events: GameEve
       const missedToday = today.some((e) => e.result === "missed" && !graced.has(e.habitId));
       if (!missedToday) return goal;
       const misses = served(goal).reduce(
-        (n, h) => n + h.history.filter((d) => d.result === "missed" && !d.graced && daysBetween(d.date, date) < PATTERN_DAYS).length,
+        (n, h) => n + h.history.filter((d) => d.result === "missed" && !d.graced && daysBetween(d.date, date) < config.risk.patternDays).length,
         0,
       );
       if (misses < config.risk.missesToTrigger) return goal;
