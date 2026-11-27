@@ -12,9 +12,11 @@
     "typecheck": "next typegen && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@second-half/api": "0.1.0",
     "@second-half/contracts": "0.1.0",
     "@second-half/engine": "0.1.0",
     "@second-half/scene": "0.1.0",
+    "@supabase/supabase-js": "2.49.4",
     "next": "16.4.6",
     "react": "19.3.1",
     "react-dom": "19.3.1"

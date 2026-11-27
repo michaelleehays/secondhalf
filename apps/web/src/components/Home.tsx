@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import type { AreaId, GameEvent, Level, PlanEdit, ResistanceId, SceneHandle, SceneTarget } from "@second-half/contracts";
-import { ComingSoonError, createLocalAdapter, type GameAdapter, type GameStep, type SavedGame } from "@/lib/adapter";
+import { ComingSoonError, createLocalAdapter, StaleGameError, type GameAdapter, type GameStep, type SavedGame } from "@/lib/adapter";
 import { ASSETS_BASE_URL } from "@/lib/config";
 import { rejection } from "@/lib/plan";
 import { draftReducer, toCheckIn } from "@/lib/checkin";
@@ -35,7 +35,7 @@ type DetailSheet =
 type OpenSheet = { kind: "checkin" } | DetailSheet;
 
 /** Home: the scene fills the screen, the HUD sits on top, tonight's check-in docks at the bottom, details open as sheets. */
-export function Home({ adapter: given }: { adapter?: GameAdapter }) {
+export function Home({ adapter: given, account }: { adapter?: GameAdapter; account?: ReactNode }) {
   const adapter = useMemo(() => given ?? createLocalAdapter({ store: browserStore() }), [given]);
   const [game, setGame] = useState<SavedGame | null>(null);
   // Latest game for handlers that run after an await (several plan edits in a row).
@@ -89,6 +89,13 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
 
   const failed = useCallback(
     (err: unknown, what: string) => {
+      if (err instanceof StaleGameError) {
+        // Saved from another device (or the weekly job ran): show the latest game and let the player redo it.
+        gameRef.current = err.game;
+        setGame(err.game);
+        pushToast({ title: "Coach", body: `Your game changed on another device, so this is the latest. ${what} didn't save; do it again here.`, kind: "info" });
+        return;
+      }
       console.error(err);
       pushToast({ title: "Coach", body: `${what} didn't go through. Nothing changed, so try again.`, kind: "bad" });
     },
@@ -189,11 +196,12 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
         return { status: "applied" };
       } catch (err) {
         if (err instanceof ComingSoonError) return { status: "coming_soon" };
-        console.error(err);
+        if (err instanceof StaleGameError) failed(err, "That edit");
+        else console.error(err);
         return { status: "failed" };
       }
     },
-    [adapter],
+    [adapter, failed],
   );
 
   const saveVision = useCallback(
@@ -206,11 +214,12 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
         setGame(next);
         return { status: "applied" };
       } catch (err) {
-        console.error(err);
+        if (err instanceof StaleGameError) failed(err, "Your Vision");
+        else console.error(err);
         return { status: "failed" };
       }
     },
-    [adapter],
+    [adapter, failed],
   );
 
   // A detail sheet leaves room for what it's about: tell the scene what the sheet covers, then frame the
@@ -330,7 +339,7 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
       <div className="backdrop" inert={sheet !== null}>
         <div className="backdrop" inert={screen !== null}>
         <SceneSlot view={view} createScene={createSceneWithFallback} assetsBaseUrl={ASSETS_BASE_URL} onReady={(h) => (scene.current = h)} onSelect={onSelect} />
-        {hud && game ? <Hud hud={hud} onOpen={onHud} actions={<DemoMenu date={game.date} busy={busy} onAction={onDemo} />} /> : null}
+        {hud && game ? <Hud hud={hud} onOpen={onHud} actions={adapter.mode === "local" ? <DemoMenu date={game.date} busy={busy} onAction={onDemo} /> : account} /> : null}
         <div className="dock">
           {state ? (
             <button className={`cta${closed ? " done" : ""}`} onClick={openCheckIn}>
