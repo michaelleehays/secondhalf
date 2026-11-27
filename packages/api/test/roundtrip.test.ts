@@ -133,22 +133,20 @@ describe.skipIf(!env.SUPABASE_INTEGRATION)("game data round-trip (local Supabase
     expect(ledgerAfter).toBe(ledgerBefore);
   });
 
-  it("bestLevel, lastReviewOn, levelNames, goal verification and knockedDown survive a save, and clearing them clears them", async () => {
+  it("bestLevel, lastReviewOn and knockedDown survive a save, and clearing them clears them", async () => {
     const api = createGameApi(a.client);
     const s = (await api.loadGameState(a.id))!;
     const knocked: GameState = {
       ...s,
       bestLevel: 3,
       lastReviewOn: "2026-11-22",
-      levelNames: { 1: "Getting started", 2: "Building up" },
-      goals: s.goals.map((g) => (g.id === "body-201" ? { ...g, verification: "Run a timed 10K", verifiedOn: "2026-11-27" } : g)),
       character: { ...s.character, health: 0, knockedDown: { since: "2026-11-27", plays: 1 } },
     };
     await api.saveStepResult(a.id, { state: knocked, events: [] });
     expect(await api.loadGameState(a.id)).toEqual(knocked);
 
-    const { bestLevel: _best, lastReviewOn: _review, levelNames: _names, ...rest } = knocked;
-    const up: GameState = { ...rest, goals: s.goals, character: { health: 30, strength: s.character.strength, graceDaysLeft: s.character.graceDaysLeft } };
+    const { bestLevel: _best, lastReviewOn: _review, ...rest } = knocked;
+    const up: GameState = { ...rest, character: { health: 30, strength: s.character.strength, graceDaysLeft: s.character.graceDaysLeft } };
     await api.saveStepResult(a.id, { state: up, events: [] });
     expect(await api.loadGameState(a.id)).toEqual(up);
     await api.saveStepResult(a.id, { state: s, events: [] });

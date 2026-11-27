@@ -30,7 +30,6 @@ export interface ProfileRow {
   level: number;
   best_level: number | null;
   last_review_on: string | null;
-  level_names: Partial<Record<Level, string>> | null;
   score: number;
   credits: number;
   /** Bumped by every save; pass it back as the expected version. */
@@ -49,8 +48,6 @@ export interface GoalRow {
   frozen: boolean;
   locked_in_on: string | null;
   last_quarterly_check: string | null;
-  verification: string | null;
-  verified_on: string | null;
 }
 export interface ProgramRow {
   id: string;
@@ -177,7 +174,6 @@ export function toGameState(snap: GameSnapshot): GameState {
     level: snap.profile.level as Level,
     ...(snap.profile.best_level != null ? { bestLevel: snap.profile.best_level as Level } : {}),
     ...(snap.profile.last_review_on != null ? { lastReviewOn: snap.profile.last_review_on } : {}),
-    ...(snap.profile.level_names != null ? { levelNames: snap.profile.level_names } : {}),
     score: snap.profile.score,
     credits: snap.profile.credits,
     modes,
@@ -194,8 +190,6 @@ export function toGameState(snap: GameSnapshot): GameState {
         frozen: g.frozen,
         ...(g.locked_in_on ? { lockedInOn: g.locked_in_on } : {}),
         ...(g.last_quarterly_check ? { lastQuarterlyCheck: g.last_quarterly_check } : {}),
-        ...(g.verification != null ? { verification: g.verification } : {}),
-        ...(g.verified_on ? { verifiedOn: g.verified_on } : {}),
       }),
     ),
     programs: snap.programs.map(
