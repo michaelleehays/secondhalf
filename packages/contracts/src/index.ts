@@ -69,7 +69,10 @@ export interface HabitDay {
   date: IsoDate;
   result: CheckInResult;
   reason?: ResistanceId;
-  /** True when a grace day covered this miss. Graced misses do not count toward the at-risk pattern. */
+  /**
+   * True for a miss that doesn't count toward patterns (the at-risk pattern and double misses):
+   * a grace day covered it, or it happened during Recovery.
+   */
   graced?: boolean;
 }
 
@@ -224,6 +227,8 @@ export interface GameState {
   character: CharacterState;
   recovery: RecoveryState | null;
   season: Season;
+  /** Date of the last completed Sunday review; one review pays per Monday–Sunday week. */
+  lastReviewOn?: IsoDate;
   /** Areas with any done/minimum habit since the week started. */
   weekProgress: Partial<Record<AreaId, boolean>>;
 }
@@ -248,6 +253,8 @@ export type GameEvent =
   | { type: "recovery_started"; cause: RecoveryState["cause"] }
   | { type: "recovery_ended"; completed: boolean }
   | { type: "knocked_down" }
+  /** Equipping would pass rules.resistance.maxEquippedPlans; state unchanged. */
+  | { type: "game_plan_refused"; gamePlanId: string; max: number }
   /** More weekly maintenance habits than rules.maintenance.maxWeeklyHabits; the UI offers merge, convert or retire. */
   | { type: "maintenance_cap"; count: number; max: number; habitIds: string[] };
 
@@ -271,6 +278,8 @@ export interface Engine {
    * A pass sets lastQuarterlyCheck. A fail puts the goal at risk at rules.risk.onTrigger.
    */
   quarterlyCheck(state: GameState, goalId: string, passed: boolean, date: IsoDate): StepResult;
+  /** Sunday review completed: pays points.weeklyReview and credits.weeklyReview once per Monday–Sunday week. */
+  closeReview(state: GameState, date: IsoDate): StepResult;
   /** Projected final score at endAge at the current pace. */
   projectedFinalScore(state: GameState): number;
   /** What the 3D scene needs to draw. */
