@@ -16,6 +16,7 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
 /** Keeps progress sums like 11 × (1/12) from landing a hair under 1. */
 const tidy = (n: number) => Math.round(n * 1e9) / 1e9;
 const WEEK_DAYS = 7;
+const SNAP = 1e-6;
 
 /** Goals that can move: on the current level or below, not frozen, and not yet held. */
 export function movable(goal: Goal, level: Level): boolean {
@@ -55,6 +56,9 @@ export function moveGoal(
   const milestone = goal.kind === "milestone";
   const verified = !!goal.verifiedOn || !!ctx.verifies;
   let target = tidy(clamp(to, 0, 1));
+  // Steps like 1/12 don't add up exactly: snap to 1 and to the verify point when within rounding.
+  if (Math.abs(target - 1) < SNAP) target = 1;
+  if (Math.abs(target - verifyAt) < SNAP) target = verifyAt;
   if (milestone && !verified) target = Math.min(target, verifyAt);
   if (milestone && verified && target >= verifyAt) target = 1;
   if (target === goal.progress) return goal;
@@ -90,7 +94,8 @@ export function weeklyShare(goal: Goal, state: GameState, habits: Habit[], weekE
 
 /**
  * Consistent weeks, at the weekly rollover. A goal (not run by a program) whose habits reached
- * `consistentWeekShare` of their weekly targets gains `1 / weeksToLockIn[goal level]`.
+ * `consistentWeekShare` of their weekly targets moves 1 / `weeksToLockIn[goal level]` of the way: to 1 for a
+ * system goal, to `milestoneVerifyAt` for a milestone, so either takes `weeksToLockIn` consistent weeks.
  */
 export function applyConsistentWeek(state: GameState, goals: Goal[], weekEnding: IsoDate, totals: Totals, config: RulesConfig, events: GameEvent[]): Goal[] {
   const programGoals = new Set(state.programs.map((p) => p.goalId));
@@ -98,7 +103,9 @@ export function applyConsistentWeek(state: GameState, goals: Goal[], weekEnding:
     if (programGoals.has(goal.id) || !movable(goal, state.level)) return goal;
     const share = weeklyShare(goal, state, state.habits, weekEnding, config);
     if (share === undefined || share < config.progress.consistentWeekShare) return goal;
-    const step = 1 / config.progress.weeksToLockIn[goal.level];
+    // Milestones reach the verify point, and system goals reach 1, after weeksToLockIn consistent weeks.
+    const reach = goal.kind === "milestone" ? config.progress.milestoneVerifyAt : 1;
+    const step = reach / config.progress.weeksToLockIn[goal.level];
     return moveGoal(goal, goal.progress + step, { date: weekEnding, level: state.level, totals }, config, events);
   });
 }

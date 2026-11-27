@@ -31,8 +31,10 @@ export type Profile = (day: number) => DayPlan;
 
 const ALL_REASONS: [ResistanceId, number][] = [["fatigue", 1], ["no_time", 1], ["temptation", 1], ["stress", 1], ["avoidance", 1]];
 
-export const PROFILES: Record<"consistent" | "struggling" | "collapse", Profile> = {
+export const PROFILES: Record<"consistent" | "steady" | "struggling" | "collapse", Profile> = {
   consistent: () => ({ done: 0.9, full: 0.8, reasons: ALL_REASONS }),
+  // The founder's growth line: about 70% grows.
+  steady: () => ({ done: 0.7, full: 0.7, reasons: ALL_REASONS }),
   struggling: () => ({ done: 0.5, full: 0.5, reasons: [["fatigue", 0.45], ["no_time", 0.45], ["stress", 0.1]] }),
   // Two great months, a month of misses, then a steady recovery.
   collapse: (day) =>

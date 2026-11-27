@@ -19,12 +19,13 @@ function setup(history: Record<string, HabitDay[]>, goals: Record<string, Partia
     ...extra,
   };
 }
-const step2 = 1 / R.progress.weeksToLockIn[2];
-const step1 = 1 / R.progress.weeksToLockIn[1];
 const verifyAt = R.progress.milestoneVerifyAt;
+/** One consistent week: a milestone moves verifyAt / weeks (body-201, level 2); a system goal 1 / weeks (people-101, level 1). */
+const step2 = verifyAt / R.progress.weeksToLockIn[2];
+const step1 = 1 / R.progress.weeksToLockIn[1];
 
 describe("Consistent weeks", () => {
-  it("consistent week: habits reaching consistentWeekShare of their weekly target move the goal 1 / weeksToLockIn[level]", () => {
+  it("consistent week: habits reaching consistentWeekShare of their weekly target move the goal 1 / weeksToLockIn[level] of the way", () => {
     const { state, events } = closeWeek(setup({ run: days(4) }), SUNDAY);
     expect(goal(state, "body-201").progress).toBeCloseTo(0.4 + step2);
     expect(events).toContainEqual({ type: "progress", goalId: "body-201", from: 0.4, to: goal(state, "body-201").progress });
@@ -39,7 +40,9 @@ describe("Consistent weeks", () => {
   });
 
   it("consistent week: short of the share, the goal does not move", () => {
-    expect(goal(closeWeek(setup({ run: days(3) }), SUNDAY).state, "body-201").progress).toBe(0.4);
+    // 2 of 4 = 0.5, below consistentWeekShare.
+    expect(2 / 4).toBeLessThan(R.progress.consistentWeekShare);
+    expect(goal(closeWeek(setup({ run: days(2) }), SUNDAY).state, "body-201").progress).toBe(0.4);
   });
 
   it("consistent week: only the 7 days ending weekEnding count", () => {
@@ -50,6 +53,17 @@ describe("Consistent weeks", () => {
   it("Rest-mode areas neither gain nor lose", () => {
     const resting = setup({ run: days(7) }, {}, { modes: { ...SAMPLE_STATE.modes, body: "rest" }, weekProgress: {} });
     expect(goal(closeWeek(resting, SUNDAY).state, "body-201").progress).toBe(0.4);
+  });
+
+  it("weeksToLockIn is the real time for both kinds: a milestone reaches the verify point, a system goal 1", () => {
+    let milestone = setup({ run: days(4) }, { "body-201": { progress: 0, status: "open" } });
+    for (let w = 0; w < R.progress.weeksToLockIn[2]; w++) milestone = { ...closeWeek(milestone, SUNDAY).state, weekProgress: moved, habits: milestone.habits };
+    expect(goal(milestone, "body-201").progress).toBeCloseTo(verifyAt);
+    let system = setup({ "reach-out": days(2) }, { "people-101": { progress: 0, status: "open" } });
+    for (let w = 0; w < R.progress.weeksToLockIn[1] - 1; w++) system = { ...closeWeek(system, SUNDAY).state, weekProgress: moved, habits: system.habits };
+    expect(goal(system, "people-101").status).toBe("in_progress");
+    system = closeWeek(system, SUNDAY).state;
+    expect(goal(system, "people-101").status).toBe("locked_in");
   });
 
   it("system goals lock in at 1, with the lock-in bonus", () => {

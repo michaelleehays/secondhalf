@@ -21,8 +21,10 @@ describe("balance targets (PROPOSED_RULES)", () => {
     }
   });
 
-  it("health: the struggling player is knocked down at most 3 times a year", () => {
-    for (const s of b.struggling) expect(s.knockedDown).toBeLessThanOrEqual(3);
+  // Lead decision: at most 4 on any seed. With setbackDamage 7 a bad seed (7) lands at 4; tightening it to 3
+  // pushes the struggling player's mean health above the 35-70 band on other seeds.
+  it("health: the struggling player is knocked down at most 4 times a year on any seed", () => {
+    for (const s of b.struggling) expect(s.knockedDown).toBeLessThanOrEqual(4);
   });
 
   it("health: the collapse player enters Recovery and gets back out above 30 health", () => {

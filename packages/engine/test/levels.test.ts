@@ -145,7 +145,7 @@ describe("Levels", () => {
     const verifyAt = R.progress.milestoneVerifyAt;
     const week = Array.from({ length: 4 }, (_, i) => ({ date: `2026-11-${24 + i}`, result: "full" as const }));
     const start = set(lockRing2(SAMPLE_STATE, "mind", "work", "money"), {
-      "body-201": { progress: verifyAt - 1 / R.progress.weeksToLockIn[2], verifiedOn: "2026-11-20" },
+      "body-201": { progress: verifyAt - verifyAt / R.progress.weeksToLockIn[2], verifiedOn: "2026-11-20" },
     });
     const withRuns = {
       ...start,
