@@ -128,6 +128,14 @@ describe("Resistance", () => {
     expect(events).toContainEqual({ type: "rule_adjusted", rule });
   });
 
+  it("rule adjustment message: 1 time, 2 times", () => {
+    // Sample temptation is at 5 with no history: tonight's report is its only one.
+    const once = day(SAMPLE_STATE, missed("no-impulse", "temptation")).state.rules[0]!.message;
+    expect(once).toMatch(/^Temptation beat you 1 time in /);
+    const twice = withHistory(SAMPLE_STATE, "no-impulse", [{ date: "2026-11-20", result: "missed", reason: "temptation" }]);
+    expect(day(twice, missed("no-impulse", "temptation")).state.rules[0]!.message).toMatch(/^Temptation beat you 2 times in /);
+  });
+
   it("rule adjustment: endsOn is adaptation.ruleWeeks weeks after the check-in", () => {
     const config = { ...R, adaptation: { ...R.adaptation, ruleWeeks: 3 } };
     const { state } = closeDay(SAMPLE_STATE, { date: DATE, entries: [missed("no-impulse", "temptation")] }, config);
