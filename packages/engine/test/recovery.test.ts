@@ -151,9 +151,9 @@ describe("Recovery mode", () => {
   });
 
   it("knocked down: reaching health.knockedDownAt emits knocked_down", () => {
-    const { events } = closeDay(withHealth(4, 0), { date: DATE, entries: [missed("run")] });
+    const { events } = closeDay(withHealth(R.health.knockedDownAt + R.health.missCost - 1, 0), { date: DATE, entries: [missed("run")] });
     expect(events).toContainEqual({ type: "knocked_down" });
-    expect(closeDay(withHealth(40, 0), { date: DATE, entries: [missed("run")] }).events).not.toContainEqual({ type: "knocked_down" });
+    expect(closeDay(withHealth(R.health.knockedDownAt + R.health.missCost + 1, 0), { date: DATE, entries: [missed("run")] }).events).not.toContainEqual({ type: "knocked_down" });
   });
 
   it("is wired into the engine", () => {

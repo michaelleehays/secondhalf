@@ -1,0 +1,71 @@
+# Database and client tests that `npm run check` skips: migrations on a fresh local Supabase, the seed,
+# pgTAP (RLS, saves, weekly rollover), the packages/api integration suite, schema lint, and a Deno
+# typecheck of the close-week Edge Function. Owned by workstream B.
+name: Supabase
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: supabase-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - uses: supabase/setup-cli@v1
+        with:
+          # The version these migrations and supabase/config.jsonc were tested with.
+          version: 3.4.0
+
+      # Only Postgres, Auth, PostgREST and the gateway are needed. The edge runtime is left out:
+      # the close-week function's logic is tested through packages/api.
+      - name: Start local Supabase
+        run: supabase start -x studio,imgproxy,mailpit,edge-runtime,logflare,vector,supavisor,realtime,storage-api,postgres-meta
+
+      - name: Fresh database (all migrations + seed)
+        run: supabase db reset
+
+      - name: pgTAP (RLS, saves, weekly rollover)
+        run: supabase test db
+
+      - name: Export local keys for the client tests
+        run: |
+          eval "$(supabase status -o env)"
+          echo "::add-mask::$ANON_KEY"
+          echo "::add-mask::$SERVICE_ROLE_KEY"
+          {
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+          } >> "$GITHUB_ENV"
+
+      - name: Client integration (round-trip, weekly rollover)
+        env:
+          SUPABASE_INTEGRATION: "1"
+        run: npm run test:integration -w @second-half/api
+
+      - name: Lint schema
+        run: supabase db lint --fail-on error
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: 2.1.4 # matches the edge runtime the CLI serves
+
+      - name: Typecheck the close-week Edge Function
+        run: deno check --config supabase/functions/close-week/deno.json supabase/functions/close-week/index.ts
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop --no-backup

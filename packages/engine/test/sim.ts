@@ -157,6 +157,8 @@ export function summary(steps: Step[]) {
     strengthDay84: strength[83] ?? null,
     strengthMeanLate: mean(strength.slice(84)),
     strengthEnd: last.character.strength,
+    /** Strength lost over days 61-91 (the collapse profile's month of misses). */
+    strengthDrop61to91: Math.round(((strength[60] ?? 0) - (strength[90] ?? 0)) * 10) / 10,
     setbacks: count("setback"),
     setbacksPerWeek: Math.round((setbackDays.reduce((a, b) => a + b, 0) / (days.length / 7)) * 100) / 100,
     rules: count("rule_adjusted"),
