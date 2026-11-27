@@ -40,6 +40,8 @@ export interface RulesConfig {
   };
   strength: {
     max: number;
+    /** Strength a new player starts with. */
+    start: number;
     /** Strength lost per miss that grace doesn't cover. 0 = off. */
     missCost: number;
     /** Share of current strength lost each night, so strength settles where gains and decay meet. 0 = off. */
@@ -97,7 +99,11 @@ export interface RulesConfig {
   recovery: { healthBelow: number; atRiskGoals: number; days: number; daysNeeded: number; restoreHealth: number };
   adaptation: { ruleWeeks: number };
   program: { defaultThreshold: number };
-  life: { defaultEndAge: number };
+  life: {
+    /** The age a new game starts at: halftime. */
+    startAge: number;
+    defaultEndAge: number;
+  };
   season: { weeks: number };
   journal: { maxEntries: number };
 }
@@ -126,7 +132,7 @@ export const DEFAULT_RULES: RulesConfig = {
     getUpAfterPlays: 3,
     getUpHealth: 30,
   },
-  strength: { max: 100, missCost: 0, dailyDecay: 0.018, idleWeekCost: 3, fullGain: 0.4, minimumGain: 0.3 },
+  strength: { max: 100, start: 50, missCost: 0, dailyDecay: 0.018, idleWeekCost: 3, fullGain: 0.4, minimumGain: 0.3 },
   grace: { perMonth: 2, maxHeld: 4 },
   resistance: { max: 5, setbackAt: 5, afterSetback: 3, gamePlanDamageFactor: 0.5, maxEquippedPlans: 3 },
   risk: { missesToTrigger: 3, patternDays: 7, onTrigger: 25, setbackPressure: 10, perBadWeek: 25, fullCleanDay: 20, minimumCleanDay: 10, lostRestartProgress: 0.5 },
@@ -144,7 +150,7 @@ export const DEFAULT_RULES: RulesConfig = {
   recovery: { healthBelow: 25, atRiskGoals: 2, days: 7, daysNeeded: 5, restoreHealth: 30 },
   adaptation: { ruleWeeks: 2 },
   program: { defaultThreshold: 3 },
-  life: { defaultEndAge: 84 },
+  life: { startAge: 42, defaultEndAge: 84 },
   season: { weeks: 12 },
   journal: { maxEntries: 200 },
 };
