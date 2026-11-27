@@ -10,6 +10,7 @@ import {
   type RulesConfig,
   type StepResult,
 } from "@second-half/contracts";
+import { withJournal } from "./journal";
 import { withLevels } from "./levels";
 import { daysBetween } from "./resistance";
 
@@ -118,7 +119,7 @@ export function applyDayRisk(goals: Goal[], input: DayRiskInput, events: GameEve
  * A milestone goal's quarterly check. A pass records the date and takes an at-risk milestone off the board;
  * a fail puts a locked-in milestone at risk at `onTrigger`. Anything else is left as it is.
  */
-export function quarterlyCheck(
+function quarterlyCheckStep(
   state: GameState,
   goalId: string,
   passed: boolean,
@@ -139,4 +140,9 @@ export function quarterlyCheck(
   });
   const result = { state: events.length || goals.some((g, i) => g !== state.goals[i]) ? { ...state, goals } : state, events };
   return withLevels(result, config);
+}
+
+/** quarterlyCheck with the step's notable moments added to `state.journal`. */
+export function quarterlyCheck(state: GameState, goalId: string, passed: boolean, date: IsoDate, config: RulesConfig = DEFAULT_RULES): StepResult {
+  return withJournal(state, quarterlyCheckStep(state, goalId, passed, date, config), date, config);
 }
