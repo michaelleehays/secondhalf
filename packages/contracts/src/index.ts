@@ -64,6 +64,13 @@ export interface Program {
   threshold: number;
 }
 
+/** One day of a habit's record. */
+export interface HabitDay {
+  date: IsoDate;
+  result: CheckInResult;
+  reason?: ResistanceId;
+}
+
 export interface Habit {
   id: string;
   goalId: string;
@@ -74,6 +81,13 @@ export interface Habit {
   weeklyTarget: Record<AreaMode, number>;
   /** True for the weekly maintenance habit of a locked-in system goal. */
   maintenance: boolean;
+  /**
+   * The engine's record of recent check-ins for this habit, oldest first, trimmed to
+   * DEFAULT_RULES.history.days. "Two misses in a row" means the last two entries here are both
+   * "missed" (consecutive check-ins of this habit, not calendar days). The at-risk pattern and
+   * Resistance reports also read from it. Persisted by the backend.
+   */
+  history: HabitDay[];
 }
 
 /* ---------- Check-ins ---------- */
@@ -183,6 +197,8 @@ export interface GameState {
   /** Default 84. */
   endAge: number;
   today: IsoDate;
+  /** IANA time zone, e.g. "America/New_York". The weekly rollover runs Sunday night in this zone. */
+  timezone: string;
   level: Level;
   score: number;
   credits: number;
