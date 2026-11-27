@@ -1,0 +1,24 @@
+{
+  "name": "@second-half/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "next typegen && tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@second-half/contracts": "0.1.0",
+    "@second-half/engine": "0.1.0",
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@types/react": "19.3.3",
+    "@types/react-dom": "19.3.0"
+  }
+}
