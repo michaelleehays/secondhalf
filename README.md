@@ -20,6 +20,7 @@ Prototypes are throwaway single files. This repository is the real app.
 | `packages/scene` | three.js world: terrain, athlete, Resistance, effects | Workstream C |
 | `assets` | Character pipeline and 3D models | Workstream D |
 | `apps/web` | Next.js app: every screen | Workstream E |
+| `apps/gameplan` | Game Plan: the simpler installable habit app (queue, check-in, points, insights) | Lead session |
 
 Workstream briefs live in `docs/workstreams/`. Working rules for every contributor, human or Claude, are in `CLAUDE.md`.
 
