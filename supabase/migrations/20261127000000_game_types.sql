@@ -11,4 +11,3 @@ create type public.recovery_cause as enum ('auto', 'life_event');
 create type public.ledger_kind as enum (
   'habit', 'program_week', 'goal_locked_in', 'level_cleared', 'weekly_review', 'dividend', 'reward_redeemed'
 );
-create type public.crew_role as enum ('owner', 'member');

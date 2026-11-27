@@ -14,6 +14,7 @@ create policy "profiles: update own" on public.profiles for update to authentica
 create policy "profiles: delete own" on public.profiles for delete to authenticated using (id = (select auth.uid()));
 
 -- Game tables keyed by user_id with full read and write by the owner.
+-- goals and habits get no delete: they are soft-deleted with archived_at (see the tables migration).
 do $$
 declare
   t text;
@@ -33,12 +34,21 @@ begin
     execute format(
       'create policy %I on public.%I for update to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()))',
       t || ': update own', t);
-    execute format(
-      'create policy %I on public.%I for delete to authenticated using (user_id = (select auth.uid()))',
-      t || ': delete own', t);
+    if t in ('goals', 'habits') then
+      execute format('revoke delete, truncate on public.%I from authenticated', t);
+    else
+      execute format(
+        'create policy %I on public.%I for delete to authenticated using (user_id = (select auth.uid()))',
+        t || ': delete own', t);
+    end if;
   end loop;
 end
 $$;
+
+-- habit_history is security_invoker, so check_ins policies apply to it.
+revoke all on public.habit_history from anon;
+revoke all on public.habit_history from authenticated;
+grant select on public.habit_history to authenticated;
 
 -- Append-only history.
 do $$
@@ -62,7 +72,6 @@ $$;
 -- Crews are shared by design: members see their crew and its member list.
 -- Helpers are security definer so policies on crew_members can look at crew_members
 -- without recursing into their own policy. They live outside the exposed API schema.
-create schema if not exists private;
 revoke all on schema private from public, anon;
 grant usage on schema private to authenticated;
 
@@ -112,9 +121,10 @@ alter table public.crew_members enable row level security;
 revoke all on public.crew_members from anon;
 create policy "crew_members: read own crews" on public.crew_members for select to authenticated
   using (user_id = (select auth.uid()) or (select private.is_crew_member(crew_id)));
-create policy "crew_members: owner adds" on public.crew_members for insert to authenticated
-  with check ((select private.is_crew_owner(crew_id)));
-create policy "crew_members: owner changes roles" on public.crew_members for update to authenticated
-  using ((select private.is_crew_owner(crew_id))) with check ((select private.is_crew_owner(crew_id)));
+-- A membership row can only be inserted for yourself. Until invites exist, the only crew you can
+-- join is one you created; accepting an invite will widen this check when the invites table lands.
+create policy "crew_members: join as self" on public.crew_members for insert to authenticated
+  with check (user_id = (select auth.uid()) and (select private.is_crew_owner(crew_id)));
+-- No update policy: a membership row has nothing to change.
 create policy "crew_members: leave or owner removes" on public.crew_members for delete to authenticated
   using (user_id = (select auth.uid()) or (select private.is_crew_owner(crew_id)));

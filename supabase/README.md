@@ -30,5 +30,7 @@ If image pulls from `public.ecr.aws` are blocked on your network, pull from Dock
 - `anon` has no access to any game table.
 - `ledger` and `game_events` are append-only for users (select and insert only).
 - Child rows use composite `(user_id, id)` foreign keys, so a habit or program can only point at the player's own goal.
-- Crews are shared by design: members can see their crew and its member list; only the crew's creator adds or removes people; members can leave.
+- Goals and habits are soft-deleted (`archived_at`); users have no delete on them, and check-ins are kept as history. Deleting the account still removes everything.
+- `Habit.history` comes from the `habit_history` view (security invoker, so check-in RLS applies). Filter `recent_rank <= rules.history.days`.
+- Crews are shared by design: members can see their crew and its member list. Ownership is `crews.created_by`. A user can only insert a membership row for themselves, and until invites exist only into a crew they created. Members can leave; the creator can remove people.
 - `service_role` bypasses RLS and is for server jobs only (e.g. the weekly `closeWeek` run).
