@@ -207,7 +207,7 @@ export function VisionSheetBody({ state, projected, date, onLevels }: { state: G
         ) : (
           <>
             <b className="title muted">Not written yet</b>
-            <p className="small muted">Your Vision is the life you're playing for, in your own words. It sits at the summit and every ring below climbs toward it.</p>
+            <p className="small muted">Your Vision is the life you're playing for, in your own words. Write it at the top of Your levels.</p>
           </>
         )}
       </article>

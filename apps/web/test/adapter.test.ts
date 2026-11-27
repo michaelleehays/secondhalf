@@ -168,3 +168,16 @@ describe("plan edits with the real engine", () => {
     expect(refused.game.state).toEqual(renamed.game.state);
   });
 });
+
+describe("Vision", () => {
+  it("saves the player's Vision, trimmed, and clears it when empty", async () => {
+    const store = memoryStore();
+    const a = createLocalAdapter({ store });
+    const g = await a.load(TODAY);
+    const set = await a.setVision(g, "  Strong at 84. Free with my time.  ");
+    expect(set.state.vision).toBe("Strong at 84. Free with my time.");
+    expect(readSaved(store)?.state.vision).toBe("Strong at 84. Free with my time.");
+    const cleared = await a.setVision(set, "   ");
+    expect("vision" in cleared.state).toBe(false);
+  });
+});

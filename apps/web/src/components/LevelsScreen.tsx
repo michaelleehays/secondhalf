@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { GameState, Goal, Level, PlanEdit } from "@second-half/contracts";
 import { AREA_META } from "@/lib/labels";
-import { KIND_LABEL, ladder, MAX_LEVEL_NAME, renameLevelEdit } from "@/lib/plan";
+import { KIND_LABEL, ladder, MAX_LEVEL_NAME, MAX_VISION, renameLevelEdit } from "@/lib/plan";
 import { goalStatusText } from "@/lib/coach";
 import type { RulesConfig } from "@second-half/contracts";
 
@@ -42,10 +42,11 @@ interface Props {
   onBack: () => void;
   onGoal: (goal: Goal) => void;
   apply: (edit: PlanEdit | null) => Promise<EditOutcome>;
+  saveVision: (text: string) => Promise<EditOutcome>;
 }
 
 /** "Your levels": the ladder from 101 to 501. Each level's name is editable; tap a goal to edit it. */
-export function LevelsScreen({ state, rules, canEdit, onBack, onGoal, apply }: Props) {
+export function LevelsScreen({ state, rules, canEdit, onBack, onGoal, apply, saveVision }: Props) {
   const rungs = ladder(state);
   const currentRef = useRef<HTMLElement>(null);
   const backRef = useRef<HTMLButtonElement>(null);
@@ -77,9 +78,7 @@ export function LevelsScreen({ state, rules, canEdit, onBack, onGoal, apply }: P
           <article key={r.level} ref={r.current ? currentRef : undefined} className={`rung${r.current ? " current" : ""}`} aria-label={`Level ${r.code}`}>
             <LevelName level={r.level} code={r.code} name={r.name} current={r.current} held={r.held} total={r.goals.length} state={state} apply={apply} />
             {r.level === 5 ? (
-              <p className={`small${state.vision?.trim() ? "" : " muted"}`}>
-                {state.vision?.trim() || "The summit: your Vision, in your own words. It comes into view as the rings below are locked in."}
-              </p>
+              <VisionField vision={state.vision ?? ""} save={saveVision} />
             ) : (
               <ul className="goals">
                 {r.goals.map((g) => (
@@ -99,6 +98,45 @@ export function LevelsScreen({ state, rules, canEdit, onBack, onGoal, apply }: P
         ))}
       </div>
     </section>
+  );
+}
+
+function VisionField({ vision, save }: { vision: string; save: (text: string) => Promise<EditOutcome> }) {
+  const [value, setValue] = useState(vision);
+  const [outcome, setOutcome] = useState<EditOutcome | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setValue(vision), [vision]);
+  const changed = value.trim() !== vision.trim();
+  return (
+    <form
+      className="form vision-form"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!changed) return setOutcome({ status: "unchanged" });
+        setBusy(true);
+        setOutcome(await save(value));
+        setBusy(false);
+      }}
+    >
+      <label htmlFor="vision-text">Your Vision, in your own words</label>
+      <textarea
+        id="vision-text"
+        rows={3}
+        maxLength={MAX_VISION}
+        value={value}
+        placeholder="e.g. Strong at 84. Free with my time. Surrounded by people I love."
+        onChange={(e) => setValue(e.target.value)}
+      />
+      <div className="actions">
+        <Outcome outcome={outcome} />
+        <span className="small muted">
+          {value.length} / {MAX_VISION}
+        </span>
+        <button className="btn primary" disabled={busy || !changed}>
+          Save Vision
+        </button>
+      </div>
+    </form>
   );
 }
 

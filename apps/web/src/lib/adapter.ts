@@ -51,6 +51,8 @@ export interface GameAdapter {
   verifyAchievement(game: SavedGame, goalId: string, note?: string): Promise<GameStep>;
   /** One edit to the player's levels, goals or habits. Rejects with ComingSoonError while the engine can't apply edits. */
   applyPlanEdit(game: SavedGame, edit: PlanEdit): Promise<GameStep>;
+  /** The player's Vision (501) in their own words. A plain state field, saved as is; empty clears it. */
+  setVision(game: SavedGame, text: string): Promise<SavedGame>;
   /** False while the engine can't apply plan edits yet. */
   canEditPlan(state: GameState): boolean;
   /** Back to the sample player. */
@@ -124,6 +126,11 @@ export function createLocalAdapter(options: LocalAdapterOptions = {}): GameAdapt
         throw err;
       }
       return step(game, result);
+    },
+    async setVision(game, text) {
+      const vision = text.trim();
+      const { vision: _old, ...rest } = game.state;
+      return save({ ...game, state: vision ? { ...rest, vision } : rest });
     },
     canEditPlan(state) {
       // A harmless edit (renaming the current level to its own name) tells us whether the engine supports edits.

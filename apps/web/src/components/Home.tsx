@@ -194,6 +194,23 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
     [adapter],
   );
 
+  const saveVision = useCallback(
+    async (text: string): Promise<EditOutcome> => {
+      const g = gameRef.current;
+      if (!g) return { status: "failed" };
+      try {
+        const next = await adapter.setVision(g, text);
+        gameRef.current = next;
+        setGame(next);
+        return { status: "applied" };
+      } catch (err) {
+        console.error(err);
+        return { status: "failed" };
+      }
+    },
+    [adapter],
+  );
+
   const canEdit = useMemo(() => (state ? adapter.canEditPlan(state) : false), [adapter, state]);
 
   const closed = !!game && game.closedOn === game.date;
@@ -297,6 +314,7 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
             onBack={closeLevels}
             onGoal={(g) => open({ kind: "goal", goalId: g.id })}
             apply={applyEdit}
+            saveVision={saveVision}
           />
         ) : null}
       </div>

@@ -21,6 +21,7 @@ import { levelCode } from "./labels";
 export const KIND_LABEL: Record<GoalKind, string> = { system: "Ongoing", milestone: "One-time" };
 export const MAX_WEEKLY_TARGET = 7;
 export const MAX_LEVEL_NAME = 40;
+export const MAX_VISION = 280;
 
 export interface LadderRung {
   level: Level;

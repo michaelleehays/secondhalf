@@ -244,7 +244,7 @@ input:not([type="checkbox"]):not([type="radio"]) {
 }
 input:disabled { color: var(--muted); }
 input::placeholder { color: #6c6f76; }
-.form label, .form .label, .habit-form label { font-size: 0.78rem; color: var(--muted); margin-bottom: -4px; }
+.form label, .form .label, .habit-form label, .vision-form label { font-size: 0.78rem; color: var(--muted); margin-bottom: -4px; }
 .habit-form { display: flex; flex-direction: column; gap: 9px; padding-top: 12px; border-top: 1px solid var(--line); }
 .habit-form:first-of-type { border-top: 0; padding-top: 0; }
 .targets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -263,3 +263,10 @@ input::placeholder { color: #6c6f76; }
 .btn.danger { border-color: var(--risk); color: var(--risk-ink); }
 .verify { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
 .verify .btn.primary { margin-left: 0; max-width: none; }
+textarea {
+  font: inherit; color: var(--ink); background: #16181c; border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; width: 100%; resize: vertical; min-height: 88px;
+}
+textarea::placeholder { color: #6c6f76; }
+.vision-form { display: flex; flex-direction: column; gap: 8px; }
+.vision-form .actions .muted { margin-right: auto; }
