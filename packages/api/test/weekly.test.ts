@@ -101,6 +101,40 @@ describe.skipIf(!env.SUPABASE_INTEGRATION)("weekly rollover (local Supabase, stu
     expect(count).toBe(1);
   });
 
+  it("a check-in saved while the job runs is kept: the rollover is refused and retried next run", async () => {
+    const busy = await player("America/Chicago");
+    await runWeeklyRollover(admin, stubCloseWeek, at("2027-11-29T10:00:00Z")); // close the earlier weeks
+    const api = createGameApi(admin);
+    const checkInDuringClose: CloseWeek = async (state, weekEnding) => {
+      if (state.userId === busy) {
+        // The player checks in tonight while the job is between its load and its save.
+        const now = (await api.loadGameState(busy))!;
+        const checkedIn: GameState = {
+          ...now,
+          today: "2027-12-05", // closeDay sets today to the check-in date
+          score: now.score + 15,
+          habits: now.habits.map((h) => (h.id === "run" ? { ...h, history: [...h.history, { date: "2027-12-05", result: "full" }] } : h)),
+        };
+        await api.saveStepResult(busy, { state: checkedIn, events: [] });
+      }
+      return stubCloseWeek(state, weekEnding);
+    };
+    // Sunday 5 Dec 23:30 in Chicago = Monday 05:30 UTC.
+    const r = await runWeeklyRollover(admin, checkInDuringClose, at("2027-12-06T05:30:00Z"));
+    expect(r.retry.map((x) => x.userId)).toContain(busy);
+    expect(r.closed.map((c) => c.userId)).not.toContain(busy);
+
+    const kept = (await api.loadGameState(busy))!;
+    expect(kept.habits.find((h) => h.id === "run")!.history.map((d) => d.date)).toContain("2027-12-05");
+
+    // The next hourly run closes the week from the fresh state, check-in included.
+    const r2 = await runWeeklyRollover(admin, stubCloseWeek, at("2027-12-06T06:07:00Z"));
+    expect(r2.closed.map((c) => c.userId)).toContain(busy);
+    const after = (await api.loadGameState(busy))!;
+    expect(after.score).toBe(kept.score);
+    expect(after.habits.find((h) => h.id === "run")!.history.map((d) => d.date)).toContain("2027-12-05");
+  });
+
   it("the real engine closeWeek (engine #21) runs through the adapter and its result loads back", async () => {
     const solo = await player("Pacific/Auckland");
     // Sunday 12 Dec 23:00 in Auckland (UTC+13) = 10:00 UTC. Close the earlier weeks with the stub first.
@@ -109,7 +143,7 @@ describe.skipIf(!env.SUPABASE_INTEGRATION)("weekly rollover (local Supabase, stu
     const r = await runWeeklyRollover(admin, engineCloseWeek(), at("2027-12-12T11:00:00Z"));
     expect(r.failed.filter((f) => f.userId === solo)).toEqual([]);
     expect(r.closed.find((c) => c.userId === solo)?.weekEnding).toBe("2027-12-12");
-    const expected = engineCloseWeek()(before, "2027-12-12");
+    const expected = await engineCloseWeek()(before, "2027-12-12");
     expect(await createGameApi(admin).loadGameState(solo)).toEqual(expected.state);
   });
 });

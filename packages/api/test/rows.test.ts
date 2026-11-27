@@ -10,7 +10,8 @@ function snapshotOf(s: GameState): GameSnapshot {
   return {
     profile: {
       id: s.userId, birth_year: s.birthYear, end_age: s.endAge, timezone: s.timezone, today: s.today,
-      level: s.level, best_level: s.bestLevel ?? null, score: s.score, credits: s.credits,
+      level: s.level, best_level: s.bestLevel ?? null, last_review_on: s.lastReviewOn ?? null,
+      score: s.score, credits: s.credits, version: 0,
     },
     areas: Object.entries(s.modes).map(([area, mode]) => ({
       area: area as never, mode, week_progress: Boolean(s.weekProgress[area as keyof GameState["modes"]]),
@@ -65,6 +66,7 @@ const RICH: GameState = {
   recovery: { cause: "auto", startedOn: "2026-11-24", day: 3, daysDone: 2, habitTitle: "Tempo run" },
   weekProgress: { body: true },
   bestLevel: 3,
+  lastReviewOn: "2026-11-22",
   character: { ...SAMPLE_STATE.character, health: 0, knockedDown: { since: "2026-11-25", plays: 1 } },
 };
 
@@ -90,6 +92,7 @@ describe("toGameState", () => {
     expect("knockedDown" in loaded.character).toBe(false);
     const { bestLevel: _best, ...noBest } = SAMPLE_STATE;
     expect("bestLevel" in toGameState(snapshotOf(noBest))).toBe(false);
+    expect("lastReviewOn" in loaded).toBe(false);
     const day = toGameState(snapshotOf(RICH)).habits.find((h) => h.id === "run")!.history[1]!;
     expect("reason" in day).toBe(false);
     expect("graced" in day).toBe(false);
@@ -115,6 +118,8 @@ describe("ledgerFromEvents", () => {
       { date: "2026-11-27", kind: "goal_locked_in", score: 625, credits: 100 },
     ]);
     expect(toSaveArgs("u1", result).p_events).toHaveLength(3);
+    expect(toSaveArgs("u1", result).p_expected_version).toBeNull();
+    expect(toSaveArgs("u1", result, 7).p_expected_version).toBe(7);
   });
 });
 

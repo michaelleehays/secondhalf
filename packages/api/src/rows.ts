@@ -29,8 +29,11 @@ export interface ProfileRow {
   today: string;
   level: number;
   best_level: number | null;
+  last_review_on: string | null;
   score: number;
   credits: number;
+  /** Bumped by every save; pass it back as the expected version. */
+  version: number;
 }
 export interface AreaRow { area: AreaId; mode: AreaMode; week_progress: boolean }
 export interface GoalRow {
@@ -170,6 +173,7 @@ export function toGameState(snap: GameSnapshot): GameState {
     timezone: snap.profile.timezone,
     level: snap.profile.level as Level,
     ...(snap.profile.best_level != null ? { bestLevel: snap.profile.best_level as Level } : {}),
+    ...(snap.profile.last_review_on != null ? { lastReviewOn: snap.profile.last_review_on } : {}),
     score: snap.profile.score,
     credits: snap.profile.credits,
     modes,
@@ -265,11 +269,12 @@ export function ledgerFromEvents(result: StepResult): LedgerEntry[] {
 }
 
 /** Arguments for the save_step_result RPC. */
-export function toSaveArgs(userId: string, result: StepResult) {
+export function toSaveArgs(userId: string, result: StepResult, expectedVersion?: number) {
   return {
     p_user_id: userId,
     p_state: result.state,
     p_ledger: ledgerFromEvents(result),
     p_events: result.events,
+    p_expected_version: expectedVersion ?? null,
   };
 }

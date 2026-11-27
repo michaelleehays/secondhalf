@@ -1,11 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_RULES, type GameState, type IsoDate, type RulesConfig, type StepResult } from "@second-half/contracts";
 import { createEngine } from "@second-half/engine";
-import { createGameApi } from "./client";
+import { createGameApi, STALE_SAVE } from "./client";
 import { toSaveArgs } from "./rows";
 
-/** The one engine call the weekly job needs. */
-export type CloseWeek = (state: GameState, weekEnding: IsoDate) => StepResult;
+/** The one engine call the weekly job needs. The engine's is synchronous; tests may return a promise. */
+export type CloseWeek = (state: GameState, weekEnding: IsoDate) => StepResult | Promise<StepResult>;
 
 /**
  * Adapter over the engine's closeWeek (engine #21). If it throws for a player, that player shows up
@@ -21,8 +21,15 @@ export interface RolloverReport {
   closed: { userId: string; weekEnding: IsoDate; events: number }[];
   /** Nothing to do: no saved game, or another run closed the week first. */
   skipped: { userId: string; reason: "no_game" | "already_closed" }[];
-  /** Will be retried on the next run: no rollover row was written. */
+  /** The game changed (a check-in) between load and save. Nothing written; the next run retries. */
+  retry: { userId: string }[];
+  /** Nothing written; the next run retries. */
   failed: { userId: string; error: string }[];
+}
+
+/** Counts only: safe to return to the scheduler, whose responses pg_net stores. */
+export function rolloverCounts(r: RolloverReport) {
+  return { due: r.due, closed: r.closed.length, skipped: r.skipped.length, retry: r.retry.length, failed: r.failed.length };
 }
 
 interface DueRow { user_id: string; week_start: IsoDate; week_ending: IsoDate }
@@ -30,7 +37,8 @@ interface DueRow { user_id: string; week_start: IsoDate; week_ending: IsoDate }
 /**
  * Closes the week for every player whose local Sunday 23:00 has passed and whose week is still open.
  * `supabase` must be a service-role client. `now` comes in as an argument; this module never reads the clock.
- * Safe to run twice or concurrently: save_week_rollover refuses a week that is already closed.
+ * Safe to run twice or concurrently: save_week_rollover refuses a week that is already closed, and refuses
+ * a save built from a load older than the stored game (a check-in landed meanwhile).
  */
 export async function runWeeklyRollover(
   supabase: SupabaseClient,
@@ -40,7 +48,7 @@ export async function runWeeklyRollover(
 ): Promise<RolloverReport> {
   const config = options.config ?? DEFAULT_RULES;
   const api = createGameApi(supabase, config);
-  const report: RolloverReport = { due: 0, closed: [], skipped: [], failed: [] };
+  const report: RolloverReport = { due: 0, closed: [], skipped: [], retry: [], failed: [] };
 
   const { data, error } = await supabase.rpc("due_week_rollovers", {
     p_now: now.toISOString(),
@@ -52,18 +60,20 @@ export async function runWeeklyRollover(
 
   for (const row of due) {
     try {
-      const state = await api.loadGameState(row.user_id);
-      if (!state) {
+      const loaded = await api.loadVersioned(row.user_id);
+      if (!loaded) {
         report.skipped.push({ userId: row.user_id, reason: "no_game" });
         continue;
       }
-      const result = closeWeek(state, row.week_ending);
+      const result = await closeWeek(loaded.state, row.week_ending);
       const { error: saveError } = await supabase.rpc("save_week_rollover", {
-        ...toSaveArgs(row.user_id, result),
+        ...toSaveArgs(row.user_id, result, loaded.version),
         p_week_ending: row.week_ending,
       });
       if (saveError?.code === "23505") {
         report.skipped.push({ userId: row.user_id, reason: "already_closed" });
+      } else if (saveError?.code === STALE_SAVE) {
+        report.retry.push({ userId: row.user_id });
       } else if (saveError) {
         report.failed.push({ userId: row.user_id, error: saveError.message });
       } else {
