@@ -147,6 +147,10 @@ export const createScene: CreateScene = async (container, options) => {
     },
     onSelect(cb) {
       selectCbs.push(cb);
+      return () => {
+        const i = selectCbs.indexOf(cb);
+        if (i >= 0) selectCbs.splice(i, 1);
+      };
     },
     dispose() {
       if (disposed) return;
