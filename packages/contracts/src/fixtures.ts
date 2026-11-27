@@ -39,7 +39,7 @@ const GOALS: Goal[] = [
 ];
 
 const h = (id: string, goalId: string, area: AreaId, title: string, fullDose: string, minimumDose: string, focus: number, maintain: number): Habit => ({
-  id, goalId, area, title, fullDose, minimumDose, weeklyTarget: { focus, maintain, rest: 0 }, maintenance: false,
+  id, goalId, area, title, fullDose, minimumDose, weeklyTarget: { focus, maintain, rest: 0 }, maintenance: false, history: [],
 });
 
 const HABITS: Habit[] = [
@@ -57,6 +57,7 @@ export const SAMPLE_STATE: GameState = {
   birthYear: 1984,
   endAge: 84,
   today: "2026-11-26",
+  timezone: "America/New_York",
   level: 2,
   score: 61840,
   credits: 1240,
