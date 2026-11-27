@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import type { AreaId, GameEvent, Level, ResistanceId, SceneHandle, SceneTarget } from "@second-half/contracts";
-import { createLocalAdapter, type GameAdapter, type GameStep, type SavedGame } from "@/lib/adapter";
+import type { AreaId, GameEvent, Level, PlanEdit, ResistanceId, SceneHandle, SceneTarget } from "@second-half/contracts";
+import { ComingSoonError, createLocalAdapter, type GameAdapter, type GameStep, type SavedGame } from "@/lib/adapter";
+import { ASSETS_BASE_URL } from "@/lib/config";
+import { rejection } from "@/lib/plan";
 import { draftReducer, toCheckIn } from "@/lib/checkin";
 import { localIsoDate } from "@/lib/dates";
 import { activeHabits, hudModel } from "@/lib/hud";
@@ -11,7 +13,9 @@ import { createSceneWithFallback } from "@/lib/sceneLoader";
 import { browserStore } from "@/lib/storage";
 import { CheckInSheet } from "./CheckInSheet";
 import { DemoMenu, type DemoAction } from "./DemoMenu";
-import { Hud } from "./Hud";
+import { GoalEditor } from "./GoalEditor";
+import { Hud, type HudTarget } from "./Hud";
+import { LevelsScreen, type EditOutcome } from "./LevelsScreen";
 import { SceneSlot } from "./SceneSlot";
 import { Sheet } from "./Sheet";
 import { AreaSheetBody, AthleteSheetBody, ResistanceSheetBody, sheetTitle, VisionSheetBody } from "./Sheets";
@@ -20,13 +24,24 @@ import { Toasts, type ToastItem } from "./Toasts";
 const TOAST_MS = 4600;
 const EVENT_GAP_MS = 700;
 
-type DetailSheet = { kind: "area"; area: AreaId; level?: Level } | { kind: "athlete" } | { kind: "vision" } | { kind: "resistance"; id: ResistanceId };
+type DetailSheet =
+  | { kind: "area"; area: AreaId; level?: Level }
+  | { kind: "athlete" }
+  | { kind: "vision" }
+  | { kind: "resistance"; id: ResistanceId }
+  | { kind: "goal"; goalId: string };
 type OpenSheet = { kind: "checkin" } | DetailSheet;
 
 /** Home: the scene fills the screen, the HUD sits on top, tonight's check-in docks at the bottom, details open as sheets. */
 export function Home({ adapter: given }: { adapter?: GameAdapter }) {
   const adapter = useMemo(() => given ?? createLocalAdapter({ store: browserStore() }), [given]);
   const [game, setGame] = useState<SavedGame | null>(null);
+  // Latest game for handlers that run after an await (several plan edits in a row).
+  const gameRef = useRef<SavedGame | null>(null);
+  gameRef.current = game;
+  /** A full screen over the map: "Your levels". */
+  const [screen, setScreen] = useState<"levels" | null>(null);
+  const screenOpener = useRef<HTMLElement | null>(null);
   const [sheet, setSheet] = useState<OpenSheet | null>(null);
   // The last sheet shown, so its content stays put while it slides away.
   const [shown, setShown] = useState<OpenSheet | null>(null);
@@ -88,7 +103,7 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
     setShown(s);
     if (s.kind === "checkin") scene.current?.focus({ kind: "home" });
     else if (s.kind === "area") scene.current?.focus({ kind: "area", area: s.area });
-    else scene.current?.focus(s);
+    else if (s.kind !== "goal") scene.current?.focus(s);
   }, []);
 
   const closeSheet = useCallback(() => {
@@ -128,6 +143,75 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
     },
     [open, closeSheet],
   );
+
+  const openLevels = useCallback(() => {
+    screenOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    opener.current = null;
+    setSheet(null);
+    setScreen("levels");
+  }, []);
+
+  const closeLevels = useCallback(() => {
+    setScreen(null);
+    const el = screenOpener.current;
+    screenOpener.current = null;
+    // The opener may have been inside a sheet that has since closed; fall back to the level badge.
+    setTimeout(() => {
+      const target = el?.isConnected && !el.closest("[inert]") ? el : document.querySelector<HTMLElement>("button.lvl");
+      target?.focus({ preventScroll: true });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (screen === null || sheet !== null) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && closeLevels();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [screen, sheet, closeLevels]);
+
+  const onHud = useCallback((t: HudTarget) => (t.kind === "levels" ? openLevels() : open(t)), [open, openLevels]);
+
+  /** One plan edit, reported back to the form that sent it. */
+  const applyEdit = useCallback(
+    async (edit: PlanEdit | null): Promise<EditOutcome> => {
+      const g = gameRef.current;
+      if (!edit) return { status: "unchanged" };
+      if (!g) return { status: "failed" };
+      try {
+        const step = await adapter.applyPlanEdit(g, edit);
+        const reason = rejection(step.events);
+        gameRef.current = step.game;
+        setGame(step.game);
+        if (reason) return { status: "rejected", reason };
+        setLastEvents(step.events);
+        return { status: "applied" };
+      } catch (err) {
+        if (err instanceof ComingSoonError) return { status: "coming_soon" };
+        console.error(err);
+        return { status: "failed" };
+      }
+    },
+    [adapter],
+  );
+
+  const saveVision = useCallback(
+    async (text: string): Promise<EditOutcome> => {
+      const g = gameRef.current;
+      if (!g) return { status: "failed" };
+      try {
+        const next = await adapter.setVision(g, text);
+        gameRef.current = next;
+        setGame(next);
+        return { status: "applied" };
+      } catch (err) {
+        console.error(err);
+        return { status: "failed" };
+      }
+    },
+    [adapter],
+  );
+
+  const canEdit = useMemo(() => (state ? adapter.canEditPlan(state) : false), [adapter, state]);
 
   const closed = !!game && game.closedOn === game.date;
 
@@ -200,8 +284,9 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
     <main className="app">
       {/* Everything behind an open sheet is inert, so Tab and screen readers stay in the sheet. */}
       <div className="backdrop" inert={sheet !== null}>
-        <SceneSlot view={view} createScene={createSceneWithFallback} onReady={(h) => (scene.current = h)} onSelect={onSelect} />
-        {hud && game ? <Hud hud={hud} onOpen={open} actions={<DemoMenu date={game.date} busy={busy} onAction={onDemo} />} /> : null}
+        <div className="backdrop" inert={screen !== null}>
+        <SceneSlot view={view} createScene={createSceneWithFallback} assetsBaseUrl={ASSETS_BASE_URL} onReady={(h) => (scene.current = h)} onSelect={onSelect} />
+        {hud && game ? <Hud hud={hud} onOpen={onHud} actions={<DemoMenu date={game.date} busy={busy} onAction={onDemo} />} /> : null}
         <div className="dock">
           {state ? (
             <button className={`cta${closed ? " done" : ""}`} onClick={openCheckIn}>
@@ -220,6 +305,18 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
             </button>
           ) : null}
         </div>
+        </div>
+        {screen === "levels" && state ? (
+          <LevelsScreen
+            state={state}
+            rules={adapter.rules}
+            canEdit={canEdit}
+            onBack={closeLevels}
+            onGoal={(g) => open({ kind: "goal", goalId: g.id })}
+            apply={applyEdit}
+            saveVision={saveVision}
+          />
+        ) : null}
       </div>
       {state ? (
         <CheckInSheet
@@ -244,6 +341,10 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
               rules={adapter.rules}
               events={lastEvents}
               onResistance={(id) => open({ kind: "resistance", id })}
+              busy={busy}
+              onVerify={(goalId, note) =>
+                run("Logging that", () => adapter.verifyAchievement(game, goalId, note || undefined), (s) => toastsFor(s.events, s.game.state, adapter.rules))
+              }
             />
           ) : detail?.kind === "athlete" ? (
             <AthleteSheetBody
@@ -254,7 +355,7 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
               onLifeEvent={() => run("Logging that", () => adapter.startLifeEvent(game), (s) => toastsFor(s.events, s.game.state, adapter.rules))}
             />
           ) : detail?.kind === "vision" ? (
-            <VisionSheetBody state={state} projected={adapter.projectedFinalScore(state)} date={game.date} />
+            <VisionSheetBody state={state} projected={adapter.projectedFinalScore(state)} date={game.date} onLevels={openLevels} />
           ) : detail?.kind === "resistance" ? (
             <ResistanceSheetBody
               state={state}
@@ -269,6 +370,8 @@ export function Home({ adapter: given }: { adapter?: GameAdapter }) {
                 })
               }
             />
+          ) : detail?.kind === "goal" ? (
+            <GoalEditor state={state} goalId={detail.goalId} apply={applyEdit} />
           ) : null}
         </Sheet>
       ) : null}

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_RULES, type CheckIn } from "@second-half/contracts";
+import { DEFAULT_RULES, type CheckIn, type GameState, type PlanEdit } from "@second-half/contracts";
 import { SAMPLE_STATE } from "@second-half/contracts/fixtures";
 import { createEngine } from "@second-half/engine";
-import { createLocalAdapter } from "../src/lib/adapter";
+import { ComingSoonError, createLocalAdapter } from "../src/lib/adapter";
 import { STORAGE_KEY, readSaved } from "../src/lib/storage";
 import { memoryStore } from "./fakeStore";
 
@@ -105,5 +105,79 @@ describe("local engine adapter", () => {
     const step = await a.startLifeEvent(await a.load(TODAY));
     expect(step.game.state.recovery?.startedOn).toBe(TODAY);
     expect(step.events.some((e) => e.type === "recovery_started")).toBe(true);
+  });
+});
+
+describe("plan edits and verification", () => {
+  it("reports the engine's plan-edit stub as coming soon", async () => {
+    const stub = { ...createEngine(DEFAULT_RULES), applyPlanEdit: () => { throw new Error("engine.applyPlanEdit is not implemented yet (workstream A)"); } };
+    const a = createLocalAdapter({ store: memoryStore(), engine: stub });
+    const g = await a.load(TODAY);
+    expect(a.canEditPlan(g.state)).toBe(false);
+    await expect(a.applyPlanEdit(g, { kind: "rename_level", level: 2, name: "Engine room" })).rejects.toBeInstanceOf(ComingSoonError);
+  });
+
+  it("passes real failures through, not as coming soon", async () => {
+    const broken = { ...createEngine(DEFAULT_RULES), applyPlanEdit: () => { throw new Error("boom"); } };
+    const a = createLocalAdapter({ store: memoryStore(), engine: broken });
+    const g = await a.load(TODAY);
+    expect(a.canEditPlan(g.state)).toBe(true);
+    await expect(a.applyPlanEdit(g, { kind: "retire_habit", habitId: "run" })).rejects.toThrow("boom");
+  });
+
+  it("applies and saves an edit when the engine supports it", async () => {
+    const store = memoryStore();
+    const engine = {
+      ...createEngine(DEFAULT_RULES),
+      applyPlanEdit: (state: GameState, edit: PlanEdit) =>
+        edit.kind === "rename_level"
+          ? { state: { ...state, levelNames: { ...state.levelNames, [edit.level]: edit.name } }, events: [] }
+          : { state, events: [{ type: "plan_rejected" as const, edit: edit.kind, reason: "Not that one." }] },
+    };
+    const a = createLocalAdapter({ store, engine });
+    const g = await a.load(TODAY);
+    expect(a.canEditPlan(g.state)).toBe(true);
+    const renamed = await a.applyPlanEdit(g, { kind: "rename_level", level: 2, name: "Engine room" });
+    expect(renamed.game.state.levelNames?.[2]).toBe("Engine room");
+    expect(readSaved(store)?.state.levelNames?.[2]).toBe("Engine room");
+    const refused = await a.applyPlanEdit(renamed.game, { kind: "retire_habit", habitId: "run" });
+    expect(refused.events).toEqual([{ type: "plan_rejected", edit: "retire_habit", reason: "Not that one." }]);
+  });
+
+  it("verifies a ready milestone with the real engine on the app's date", async () => {
+    const at = DEFAULT_RULES.progress.milestoneVerifyAt;
+    const ready = { ...SAMPLE_STATE, goals: SAMPLE_STATE.goals.map((x) => (x.id === "body-201" ? { ...x, progress: at } : x)) };
+    const a = createLocalAdapter({ store: memoryStore(), initial: ready });
+    const step = await a.verifyAchievement(await a.load(TODAY), "body-201", "47:10 on the river loop");
+    expect(step.events[0]).toEqual({ type: "verified", goalId: "body-201", note: "47:10 on the river loop" });
+    const g = step.game.state.goals.find((x) => x.id === "body-201")!;
+    expect(g.verifiedOn).toBe(TODAY);
+    expect(g.status).toBe("locked_in");
+  });
+});
+
+describe("plan edits with the real engine", () => {
+  it("renames a level, and turns down a kind change on at-risk ground with a reason", async () => {
+    const a = createLocalAdapter({ store: memoryStore() });
+    const g = await a.load(TODAY);
+    expect(a.canEditPlan(g.state)).toBe(true);
+    const renamed = await a.applyPlanEdit(g, { kind: "rename_level", level: 2, name: "Engine room" });
+    expect(renamed.game.state.levelNames?.[2]).toBe("Engine room");
+    const refused = await a.applyPlanEdit(renamed.game, { kind: "set_goal", goalId: "money-101", goalKind: "system" });
+    expect(refused.events[0]?.type).toBe("plan_rejected");
+    expect(refused.game.state).toEqual(renamed.game.state);
+  });
+});
+
+describe("Vision", () => {
+  it("saves the player's Vision, trimmed, and clears it when empty", async () => {
+    const store = memoryStore();
+    const a = createLocalAdapter({ store });
+    const g = await a.load(TODAY);
+    const set = await a.setVision(g, "  Strong at 84. Free with my time.  ");
+    expect(set.state.vision).toBe("Strong at 84. Free with my time.");
+    expect(readSaved(store)?.state.vision).toBe("Strong at 84. Free with my time.");
+    const cleared = await a.setVision(set, "   ");
+    expect("vision" in cleared.state).toBe(false);
   });
 });
