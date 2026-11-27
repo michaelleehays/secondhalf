@@ -5,7 +5,7 @@ import { toWorldView } from "@second-half/engine";
 import { cellLook, cellLooks } from "../src/cells";
 import { cellIndex } from "../src/layout";
 
-const cell = (over: Partial<CellView>): CellView => ({ area: "body", level: 1, status: "open", progress: 0, risk: 0, frozen: false, ...over });
+const cell = (over: Partial<CellView>): CellView => ({ goalId: "body-101", area: "body", level: 1, status: "open", progress: 0, risk: 0, frozen: false, ...over });
 
 describe("cellLook", () => {
   it("fills locked-in cells fully", () => {

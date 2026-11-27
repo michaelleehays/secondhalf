@@ -52,8 +52,10 @@ describe("closeDay", () => {
   });
 
   it("credits do not take the level multiplier", () => {
-    const level1 = day({ ...SAMPLE_STATE, level: 1 }, full("run")).state;
-    const level2 = day(SAMPLE_STATE, full("run")).state;
+    // Level changes off, so only the habit's credits are compared.
+    const config = { ...R, levels: { ...R.levels, goalsToClear: 99 } };
+    const level1 = closeDay({ ...SAMPLE_STATE, level: 1 }, { date: DATE, entries: [full("run")] }, config).state;
+    const level2 = closeDay(SAMPLE_STATE, { date: DATE, entries: [full("run")] }, config).state;
     expect(level1.credits - SAMPLE_STATE.credits).toBe(level2.credits - SAMPLE_STATE.credits);
     expect(level2.score - SAMPLE_STATE.score).toBeGreaterThan(level1.score - SAMPLE_STATE.score);
   });

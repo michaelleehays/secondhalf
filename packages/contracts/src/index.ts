@@ -152,6 +152,11 @@ export interface CharacterState {
   /** 0..100. Long-run consistency. Drives build. */
   strength: number;
   graceDaysLeft: number;
+  /**
+   * Present while knocked down (health reached rules.health.knockedDownAt). Each done or minimum entry adds 1 to
+   * `plays`; at rules.health.getUpAfterPlays it is cleared and health becomes rules.health.getUpHealth.
+   */
+  knockedDown?: { since: IsoDate; plays: number };
 }
 
 export interface RecoveryState {
@@ -202,6 +207,11 @@ export interface GameState {
   /** IANA time zone, e.g. "America/New_York". The weekly rollover runs Sunday night in this zone. */
   timezone: string;
   level: Level;
+  /**
+   * Highest level ever reached. Level-clear credits pay only when a level above this is cleared.
+   * Missing means the same as `level` (older saved games).
+   */
+  bestLevel?: Level;
   score: number;
   credits: number;
   modes: Record<AreaId, AreaMode>;
@@ -237,7 +247,9 @@ export type GameEvent =
   | { type: "rule_adjusted"; rule: RuleAdjustment }
   | { type: "recovery_started"; cause: RecoveryState["cause"] }
   | { type: "recovery_ended"; completed: boolean }
-  | { type: "knocked_down" };
+  | { type: "knocked_down" }
+  /** More weekly maintenance habits than rules.maintenance.maxWeeklyHabits; the UI offers merge, convert or retire. */
+  | { type: "maintenance_cap"; count: number; max: number; habitIds: string[] };
 
 export interface StepResult {
   state: GameState;
@@ -268,6 +280,8 @@ export interface Engine {
 /* ---------- Scene interface (implemented by packages/scene) ---------- */
 
 export interface CellView {
+  /** Id of the goal this cell shows; events and attackingGoalId refer to it. */
+  goalId: string;
   area: AreaId;
   level: Exclude<Level, 5>;
   status: GoalStatus;
@@ -292,7 +306,12 @@ export interface WorldView {
   inRecovery: boolean;
 }
 
-export type SceneTarget = { kind: "home" } | { kind: "athlete" } | { kind: "area"; area: AreaId } | { kind: "vision" };
+export type SceneTarget =
+  | { kind: "home" }
+  | { kind: "athlete" }
+  | { kind: "area"; area: AreaId }
+  | { kind: "vision" }
+  | { kind: "resistance"; id: ResistanceId };
 
 export interface SceneHandle {
   update(view: WorldView): void;

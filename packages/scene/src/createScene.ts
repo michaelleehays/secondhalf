@@ -150,10 +150,11 @@ export const createScene: CreateScene = async (container, options) => {
   window.addEventListener("pointercancel", onCancel);
 
   /* ---------- events ---------- */
+  const FLASH_OFFSET = new THREE.Vector3(0, 2, 2);
   function flash(color: number, intensity: number) {
     if (reduceMotion) return;
     flashLight.color.setHex(color);
-    flashLight.position.copy(athleteRoot.position).add(new THREE.Vector3(0, 2, 2));
+    flashLight.position.copy(athleteRoot.position).add(FLASH_OFFSET);
     flashLight.intensity = intensity;
   }
 
@@ -193,9 +194,13 @@ export const createScene: CreateScene = async (container, options) => {
     terrain.tick(t);
     athleteRoot.position.lerp(athleteGoal, first ? 1 : 1 - Math.pow(0.1, dt));
     marker.tick(t, athleteRoot.position);
-    athlete?.tick(dt, t);
+    if (athlete) {
+      athlete.tick(dt, t);
+      // Lying down, the body also tilts onto the slope, like the ring under it.
+      athlete.root.quaternion.identity().slerp(marker.group.quaternion, athlete.down);
+    }
     flashLight.intensity *= Math.pow(0.03, dt);
-    rig.update(dt, level(), first || reduceMotion);
+    rig.update(dt, level(), (athlete?.down ?? 0) > 0.5, first || reduceMotion);
     first = false;
     renderer.render(scene, camera);
   };
@@ -274,12 +279,14 @@ function createMarker() {
 
   const up = new THREE.Vector3(0, 1, 0);
   const normal = new THREE.Vector3();
+  const n: [number, number, number] = [0, 0, 0];
   return {
     group,
     /** `at` is the marker's world position; the ring and shadow tilt to lie flat on the slope. */
     tick(t: number, at: THREE.Vector3) {
       ringMat.opacity = 0.5 + 0.35 * Math.sin(t * 3);
-      normal.set(...normalAt(at.x, at.z));
+      normalAt(at.x, at.z, n);
+      normal.set(n[0], n[1], n[2]);
       group.quaternion.setFromUnitVectors(up, normal);
     },
     dispose() {

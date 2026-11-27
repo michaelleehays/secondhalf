@@ -7,12 +7,28 @@ export interface CameraShot {
   look: THREE.Vector3;
 }
 
+export interface ShotContext {
+  /** Width / height. */
+  aspect: number;
+  /** Vertical field of view, degrees. */
+  fov: number;
+  level: Level;
+  /** The athlete is lying down, so the athlete shot frames a wide, low body. */
+  athleteDown: boolean;
+}
+
+/** Half-width (metres) to keep in frame around a lying athlete. */
+const DOWN_HALF_WIDTH = 1.4;
+/** Direction from a lying athlete to the camera (normalised in shotFor). */
+const DOWN_DIR = new THREE.Vector3(0.15, 0.6, 0.8).normalize();
+
 /**
- * Where the camera sits for each focus target. `aspect` is width / height.
+ * Where the camera sits for each focus target.
  * Writes into `out` when given, so callers can avoid allocating.
  */
-export function shotFor(target: SceneTarget, aspect: number, level: Level, out?: CameraShot): CameraShot {
+export function shotFor(target: SceneTarget, ctx: ShotContext, out?: CameraShot): CameraShot {
   const shot = out ?? { pos: new THREE.Vector3(), look: new THREE.Vector3() };
+  const { aspect, level } = ctx;
   switch (target.kind) {
     case "home": {
       const narrow = aspect < 0.8;
@@ -22,8 +38,17 @@ export function shotFor(target: SceneTarget, aspect: number, level: Level, out?:
     }
     case "athlete": {
       const [x, y, z] = athleteSpot(level);
-      shot.pos.set(x + 0.9, y + 1.7, z + 4.2);
-      shot.look.set(x, y + 1.05, z);
+      if (ctx.athleteDown) {
+        // Fit the lying body across the narrower of the two fields of view.
+        const halfV = THREE.MathUtils.degToRad(ctx.fov) / 2;
+        const halfH = Math.atan(Math.tan(halfV) * aspect);
+        const dist = Math.max(4.5, DOWN_HALF_WIDTH / Math.tan(Math.min(halfV, halfH)));
+        shot.look.set(x, y + 0.25, z);
+        shot.pos.copy(DOWN_DIR).multiplyScalar(dist).add(shot.look);
+      } else {
+        shot.pos.set(x + 0.9, y + 1.7, z + 4.2);
+        shot.look.set(x, y + 1.05, z);
+      }
       break;
     }
     case "area": {
@@ -49,7 +74,6 @@ const UP = new THREE.Vector3(0, 1, 0);
 const _offset = new THREE.Vector3();
 const _goal = new THREE.Vector3();
 
-const targetKey = (t: SceneTarget) => (t.kind === "area" ? `area:${t.area}` : t.kind);
 
 /** Eases the camera toward the current shot, with a user-controlled yaw around the look point. */
 export class CameraRig {
@@ -61,7 +85,14 @@ export class CameraRig {
   private look = new THREE.Vector3();
   private placed = false;
   private shot: CameraShot = { pos: new THREE.Vector3(), look: new THREE.Vector3() };
-  private shotKey = "";
+  /** What the cached shot was computed for; recomputed only when one of these changes. */
+  private shotFor: { target: SceneTarget | null; aspect: number; fov: number; level: number; down: boolean } = {
+    target: null,
+    aspect: 0,
+    fov: 0,
+    level: 0,
+    down: false,
+  };
 
   constructor(readonly camera: THREE.PerspectiveCamera) {}
 
@@ -84,11 +115,16 @@ export class CameraRig {
   }
 
   /** Advance by `dt` seconds. `snap` jumps straight to the shot (first frame, reduced motion). */
-  update(dt: number, level: Level, snap = false) {
-    const key = `${targetKey(this.target)}|${this.camera.aspect.toFixed(3)}|${level}`;
-    if (key !== this.shotKey) {
-      shotFor(this.target, this.camera.aspect, level, this.shot);
-      this.shotKey = key;
+  update(dt: number, level: Level, athleteDown: boolean, snap = false) {
+    const c = this.shotFor;
+    const { aspect, fov } = this.camera;
+    if (c.target !== this.target || c.aspect !== aspect || c.fov !== fov || c.level !== level || c.down !== athleteDown) {
+      shotFor(this.target, { aspect, fov, level, athleteDown }, this.shot);
+      c.target = this.target;
+      c.aspect = aspect;
+      c.fov = fov;
+      c.level = level;
+      c.down = athleteDown;
     }
     const { pos, look } = this.shot;
     const k = snap || !this.placed ? 1 : 1 - Math.pow(0.04, dt);

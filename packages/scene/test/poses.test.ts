@@ -45,3 +45,28 @@ describe("poseAt", () => {
     expect(poseAt({ ...base, time: 1 }).bones.Spine2).not.toEqual(poseAt({ ...base, time: 2 }).bones.Spine2);
   });
 });
+
+describe("poseAt reuse", () => {
+  it("writes into the pose it is given and resets it each call", async () => {
+    const { emptyPose } = await import("../src/poses");
+    const out = emptyPose();
+    const arm = out.bones.LeftArm;
+    expect(poseAt({ ...base, hit: 1 }, out)).toBe(out);
+    expect(out.bones.LeftArm).toBe(arm);
+    poseAt(base, out);
+    expect(out.bones.LeftArm).toEqual(poseAt(base).bones.LeftArm);
+  });
+
+  it("splits the celebration raise between shoulders and upper arms", () => {
+    const mid = poseAt({ ...base, celebrate: 0.5 });
+    expect(mid.bones.LeftShoulder[2]).toBeGreaterThan(0.3);
+    expect(mid.bones.RightShoulder[2]).toBeLessThan(-0.3);
+  });
+
+  it("rolls the shoulders forward when slumped without flaring the arms", () => {
+    const s = poseAt({ ...base, slump: 1 });
+    expect(Math.abs(s.bones.LeftShoulder[2])).toBeLessThan(0.05);
+    expect(s.bones.LeftShoulder[1]).toBeLessThan(0);
+    expect(s.bones.RightShoulder[1]).toBeGreaterThan(0);
+  });
+});

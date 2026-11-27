@@ -29,16 +29,25 @@ export const POSED_BONES = [
 ] as const;
 export type PosedBone = (typeof POSED_BONES)[number];
 
-export type Euler3 = readonly [number, number, number];
+export type Euler3 = [number, number, number];
+type Euler3In = readonly [number, number, number];
 
 export interface Pose {
-  bones: Partial<Record<PosedBone, Euler3>>;
+  /** Every posed bone, always present. */
+  bones: Record<PosedBone, Euler3>;
   /** Hip offset in character space, metres. */
   hips: Euler3;
-  /** Whole-body rotation about the feet, character space, applied pitch first then yaw (Euler order "YXZ"). */
+  /** Whole-body rotation, character space, applied pitch first then yaw (Euler order "YXZ"). */
   root: Euler3;
   /** Whole-body lift, metres (for a hop, or lying on the ground). */
   lift: number;
+}
+
+interface PoseLayer {
+  bones: Partial<Record<PosedBone, Euler3In>>;
+  hips?: Euler3In;
+  root?: Euler3In;
+  lift?: number;
 }
 
 /** Inputs to the pose, all smoothed by the caller. */
@@ -55,41 +64,35 @@ export interface PoseInput {
   celebrate: number;
 }
 
-const ZERO: Euler3 = [0, 0, 0];
-
 /** Rest is an A-pose: drop the arms to the sides and keep a slight bend at the elbow. */
-const STANDING: Pose = {
+const STANDING: PoseLayer = {
   bones: {
     LeftArm: [0.05, 0, -0.7],
     RightArm: [0.05, 0, 0.7],
     LeftForeArm: [0.15, 0, 0],
     RightForeArm: [0.15, 0, 0],
   },
-  hips: ZERO,
-  root: ZERO,
-  lift: 0,
 };
 
-/** Head down, chest caved, shoulders rounded. */
-const SLUMPED: Pose = {
+/** Head down, chest caved, shoulders rolled forward (about y, so the arms stay at the sides). */
+const SLUMPED: PoseLayer = {
   bones: {
     Spine1: [0.12, 0, 0],
     Spine2: [0.14, 0, 0],
     Neck: [0.16, 0, 0],
     Head: [0.24, 0, 0],
-    LeftShoulder: [0.1, 0, -0.1],
-    RightShoulder: [0.1, 0, 0.1],
+    LeftShoulder: [0.06, -0.12, -0.03],
+    RightShoulder: [0.06, 0.12, 0.03],
   },
   hips: [0, -0.03, 0],
-  root: ZERO,
-  lift: 0,
 };
 
 /**
  * On the back on the ground, knees up, arms out. The body falls backward, then turns a quarter so
- * it lies along the slope's contour instead of into the hill behind it.
+ * it lies along the slope's contour instead of into the hill behind it. The rig keeps the pelvis
+ * over the spot while it falls (see athlete.ts).
  */
-const DOWN: Pose = {
+const DOWN: PoseLayer = {
   bones: {
     LeftArm: [0, 0, 0.6],
     RightArm: [0, 0, -0.6],
@@ -101,38 +104,34 @@ const DOWN: Pose = {
     RightLeg: [-0.3, 0, 0],
     Head: [0.35, 0.3, 0],
   },
-  hips: ZERO,
   root: [-Math.PI / 2, Math.PI / 2, 0],
-  lift: 0.16,
+  lift: 0.1,
 };
 
 /** Snapped back and twisted, as if struck in the chest. */
-const HIT: Pose = {
+const HIT: PoseLayer = {
   bones: {
-    Spine1: [-0.15, 0.1, 0],
-    Spine2: [-0.35, 0.2, 0],
-    Head: [-0.3, -0.15, 0],
-    LeftArm: [-0.3, 0, 0.25],
-    RightArm: [-0.3, 0, -0.25],
+    Spine1: [-0.22, 0.14, 0],
+    Spine2: [-0.5, 0.28, 0],
+    Head: [-0.4, -0.2, 0],
+    LeftArm: [-0.45, 0, 0.35],
+    RightArm: [-0.45, 0, -0.35],
   },
-  hips: [0, 0, -0.05],
-  root: ZERO,
-  lift: 0,
+  hips: [0, 0, -0.08],
 };
 
-/** Both arms overhead, chest and chin up. */
-const ARMS_UP: Pose = {
+/** Both arms overhead, chest and chin up. The raise is split between shoulders and upper arms. */
+const ARMS_UP: PoseLayer = {
   bones: {
-    LeftArm: [0, 0, 2.75],
-    RightArm: [0, 0, -2.75],
+    LeftShoulder: [0, 0, 0.4],
+    RightShoulder: [0, 0, -0.4],
+    LeftArm: [0, 0, 2.3],
+    RightArm: [0, 0, -2.3],
     LeftForeArm: [-0.2, 0, 0],
     RightForeArm: [-0.2, 0, 0],
     Spine2: [-0.12, 0, 0],
     Head: [-0.25, 0, 0],
   },
-  hips: ZERO,
-  root: ZERO,
-  lift: 0,
 };
 
 /** Celebration length in seconds; the caller advances `celebrate` by dt / this. */
@@ -140,9 +139,19 @@ export const CELEBRATE_SECONDS = 1.8;
 /** Hit reaction decay rate (per second). */
 export const HIT_DECAY = 2.2;
 
-/** Builds the full pose for this frame. */
-export function poseAt(input: PoseInput): Pose {
-  const out: Pose = { bones: {}, hips: [0, 0, 0], root: [0, 0, 0], lift: 0 };
+/** A pose with every bone at zero. Reuse one per athlete and pass it to poseAt. */
+export function emptyPose(): Pose {
+  const bones = {} as Record<PosedBone, Euler3>;
+  for (const b of POSED_BONES) bones[b] = [0, 0, 0];
+  return { bones, hips: [0, 0, 0], root: [0, 0, 0], lift: 0 };
+}
+
+/** Builds the full pose for this frame into `out` (allocated when omitted). */
+export function poseAt(input: PoseInput, out: Pose = emptyPose()): Pose {
+  for (const b of POSED_BONES) set(out.bones[b], 0, 0, 0);
+  set(out.hips, 0, 0, 0);
+  set(out.root, 0, 0, 0);
+  out.lift = 0;
   const up = 1 - clamp01(input.down);
 
   add(out, STANDING, 1);
@@ -158,32 +167,40 @@ export function poseAt(input: PoseInput): Pose {
     out.lift += Math.max(0, Math.sin(c * Math.PI * 4)) * 0.12 * raise * up;
   }
 
-  // Breathing idle: a slow chest rise and a little sway, quieter when slumped, gone when down.
+  // Breathing idle: a slow chest rise and a little sway, gone when down.
   const breath = Math.sin(input.time * 1.6) * up;
   const sway = Math.sin(input.time * 0.7) * up;
-  addBone(out, "Spine1", [-0.015 * breath, 0, 0.01 * sway]);
-  addBone(out, "Spine2", [-0.02 * breath, 0, 0]);
-  addBone(out, "LeftShoulder", [0, 0, 0.015 * breath]);
-  addBone(out, "RightShoulder", [0, 0, -0.015 * breath]);
-  addBone(out, "Head", [0.01 * breath, 0.02 * sway, 0]);
-  out.hips = [out.hips[0] + 0.006 * sway, out.hips[1] + 0.004 * breath, out.hips[2]];
+  addTo(out.bones.Spine1, -0.015 * breath, 0, 0.01 * sway);
+  addTo(out.bones.Spine2, -0.02 * breath, 0, 0);
+  addTo(out.bones.LeftShoulder, 0, 0, 0.015 * breath);
+  addTo(out.bones.RightShoulder, 0, 0, -0.015 * breath);
+  addTo(out.bones.Head, 0.01 * breath, 0.02 * sway, 0);
+  addTo(out.hips, 0.006 * sway, 0.004 * breath, 0);
   return out;
 }
 
-function add(out: Pose, p: Pose, w: number) {
+function add(out: Pose, layer: PoseLayer, w: number) {
   if (w <= 0) return;
-  for (const k of Object.keys(p.bones) as PosedBone[]) addBone(out, k, scale(p.bones[k]!, w));
-  out.hips = sum(out.hips, scale(p.hips, w));
-  out.root = sum(out.root, scale(p.root, w));
-  out.lift += p.lift * w;
+  for (const k in layer.bones) {
+    const e = layer.bones[k as PosedBone]!;
+    addTo(out.bones[k as PosedBone], e[0] * w, e[1] * w, e[2] * w);
+  }
+  if (layer.hips) addTo(out.hips, layer.hips[0] * w, layer.hips[1] * w, layer.hips[2] * w);
+  if (layer.root) addTo(out.root, layer.root[0] * w, layer.root[1] * w, layer.root[2] * w);
+  out.lift += (layer.lift ?? 0) * w;
 }
 
-function addBone(out: Pose, bone: PosedBone, e: Euler3) {
-  out.bones[bone] = sum(out.bones[bone] ?? ZERO, e);
+function set(e: Euler3, x: number, y: number, z: number) {
+  e[0] = x;
+  e[1] = y;
+  e[2] = z;
+}
+function addTo(e: Euler3, x: number, y: number, z: number) {
+  e[0] += x;
+  e[1] += y;
+  e[2] += z;
 }
 
-const sum = (a: Euler3, b: Euler3): Euler3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-const scale = (a: Euler3, w: number): Euler3 => [a[0] * w, a[1] * w, a[2] * w];
 const clamp01 = (n: number) => (Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0);
 const smooth = (n: number) => {
   const t = clamp01(n);
