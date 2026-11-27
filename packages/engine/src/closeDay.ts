@@ -7,16 +7,17 @@ import {
   type Goal,
   type Habit,
   type HabitDay,
-  type IsoDate,
+  type ResistanceId,
+  type ResistanceState,
+  type RuleAdjustment,
   type RulesConfig,
   type StepResult,
 } from "@second-half/contracts";
+import { activeRules, adjustmentFor, daysBetween, hasEffect, reportsIn, usualMissOn } from "./resistance";
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 /** Keeps progress sums like 0.97 + 0.03 from landing a hair under 1. */
 const tidy = (n: number) => Math.round(n * 1e9) / 1e9;
-const DAY_MS = 864e5;
-const daysBetween = (a: IsoDate, b: IsoDate) => Math.round((Date.parse(b) - Date.parse(a)) / DAY_MS);
 
 /** True when the habit's last recorded check-in was a miss, so a miss today is the second in a row. */
 const lastWasMiss = (habit: Habit) => habit.history[habit.history.length - 1]?.result === "missed";
@@ -36,6 +37,10 @@ function earnsProgress(goal: Goal, state: GameState): boolean {
  * - Missed: grace days absorb misses first (costliest misses first); a miss with no grace left costs health,
  *   and a second miss in a row on the same habit (its last two check-ins) costs `doubleMissFactor` × that.
  *   A grace day removes the damage, not the miss, so the streak still counts.
+ * - Resistance: each reason given raises that Resistance by 1; doing a habit on a weekday it is usually
+ *   missed knocks that Resistance down by 1. A Resistance reported while at `setbackAt` causes a setback
+ *   (halved by an equipped game plan) and, if no rule for it is in force, a rule adjustment.
+ * - Rule adjustments in force change how entries count (see `RuleEffect`).
  * - Health and strength changes are summed and clamped once, so entry order never matters.
  * - Score is never taken away.
  *
@@ -43,8 +48,10 @@ function earnsProgress(goal: Goal, state: GameState): boolean {
  */
 export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig = DEFAULT_RULES): StepResult {
   const events: GameEvent[] = [];
+  const date = checkIn.date;
   const mult = config.levelMultiplier[state.level];
   const habitsById = new Map(state.habits.map((h) => [h.id, h]));
+  const rulesInForce = activeRules(state.rules, date);
 
   // Only entries for habits the player has; one entry per habit (the last one wins).
   const entries = new Map<string, CheckInEntry>();
@@ -55,21 +62,30 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
   let graceDaysLeft = state.character.graceDaysLeft;
   const weekProgress = { ...state.weekProgress };
 
-  // Misses: decide which ones grace absorbs before any damage lands.
-  const misses = [...entries.values()]
-    .filter((e) => e.result === "missed")
+  // Misses: decide which ones grace absorbs before any damage lands. A miss that costs no health needs no grace.
+  const misses = [...entries.values()].filter((e) => e.result === "missed");
+  const costly = misses
+    .filter((e) => !hasEffect(rulesInForce, "no_health_loss_on_miss", e.habitId))
     .map((e) => ({ habitId: e.habitId, double: lastWasMiss(habitsById.get(e.habitId)!) }));
-  const graceOrder = [...misses].sort((a, b) => Number(b.double) - Number(a.double));
+  const graceOrder = [...costly].sort((a, b) => Number(b.double) - Number(a.double));
   const absorbed = new Set(graceOrder.slice(0, graceDaysLeft).map((m) => m.habitId));
 
-  const health = { habit: 0, miss: 0, double_miss: 0 };
+  const health = { habit: 0, miss: 0, double_miss: 0, setback: 0 };
   let strengthGain = 0;
   const progressGain = new Map<string, number>();
+  const resistanceDelta = new Map<ResistanceId, number>();
+  const reported = new Set<ResistanceId>();
+  const bump = (id: ResistanceId, by: number) => resistanceDelta.set(id, (resistanceDelta.get(id) ?? 0) + by);
 
   for (const entry of entries.values()) {
     const habit = habitsById.get(entry.habitId)!;
 
     if (entry.result === "missed") {
+      if (entry.reason) {
+        bump(entry.reason, 1);
+        reported.add(entry.reason);
+      }
+      if (hasEffect(rulesInForce, "no_health_loss_on_miss", habit.id)) continue;
       if (absorbed.has(habit.id)) {
         graceDaysLeft -= 1;
         events.push({ type: "grace_used", habitId: habit.id });
@@ -81,9 +97,14 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
       continue;
     }
 
-    const full = entry.result === "full";
+    const usual = usualMissOn(habit, date);
+    if (usual) bump(usual, -1);
+
+    const full = entry.result === "full" || !!hasEffect(rulesInForce, "minimum_counts_as_full", habit.id);
+    const creditRule = rulesInForce.find((r) => r.effect.kind === "credit_multiplier" && r.effect.habitId === habit.id);
+    const creditMult = creditRule?.effect.kind === "credit_multiplier" ? creditRule.effect.multiplier : 1;
     const points = Math.round((full ? config.points.habitFull : config.points.habitMinimum) * mult);
-    const earned = full ? config.credits.habitFull : config.credits.habitMinimum;
+    const earned = Math.round((full ? config.credits.habitFull : config.credits.habitMinimum) * creditMult);
     score += points;
     credits += earned;
     events.push({ type: "points", score: points, credits: earned, reason: "habit" });
@@ -95,20 +116,55 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
     progressGain.set(habit.goalId, (progressGain.get(habit.goalId) ?? 0) + step);
   }
 
+  // History: append today's result and keep the last `history.days` days.
+  const habits = state.habits.map((h): Habit => {
+    const entry = entries.get(h.id);
+    if (!entry) return h;
+    const today: HabitDay = { date, result: entry.result, ...(entry.reason ? { reason: entry.reason } : {}) };
+    const history = [...h.history, today].filter((d) => daysBetween(d.date, date) < config.history.days);
+    return { ...h, history };
+  });
+
+  // Resistance: strength, reports, setbacks and rule adjustments.
+  const newRules: RuleAdjustment[] = [];
+  const resistance = { ...state.resistance };
+  for (const id of Object.keys(state.resistance) as ResistanceId[]) {
+    const before = state.resistance[id];
+    const strength = clamp(before.strength + (resistanceDelta.get(id) ?? 0), 1, config.resistance.max);
+    const next: ResistanceState = { ...before, strength, reports14d: reportsIn(habits, id) };
+    resistance[id] = next;
+    if (strength !== before.strength) events.push({ type: "resistance_changed", id, strength });
+
+    if (reported.has(id) && strength >= config.resistance.setbackAt) {
+      const planned = state.gamePlans.some((p) => p.resistance === id && p.equipped);
+      const damage = config.health.setbackDamage * (planned ? config.resistance.gamePlanDamageFactor : 1);
+      health.setback -= damage;
+      events.push({ type: "setback", resistance: id, damage });
+
+      if (!rulesInForce.some((r) => r.trigger === id)) {
+        const rule = adjustmentFor(id, habits, misses, date, config);
+        if (rule) {
+          newRules.push(rule);
+          events.push({ type: "rule_adjusted", rule });
+        }
+      }
+    }
+  }
+
   // Health: sum, clamp once, then trim the events so they add up to what actually changed.
   const startHealth = state.character.health;
-  const raw = startHealth + health.habit + health.miss + health.double_miss;
+  const raw = startHealth + health.habit + health.miss + health.double_miss + health.setback;
   const endHealth = clamp(raw, 0, config.health.max);
   if (raw > endHealth) health.habit -= raw - endHealth;
   if (raw < endHealth) {
     let give = endHealth - raw;
-    for (const key of ["miss", "double_miss"] as const) {
+    for (const key of ["miss", "double_miss", "setback"] as const) {
       const back = Math.min(give, -health[key]);
       health[key] += back;
       give -= back;
     }
   }
-  for (const reason of ["habit", "miss", "double_miss"] as const) {
+  for (const reason of ["habit", "miss", "double_miss", "setback"] as const) {
     if (health[reason] !== 0) events.push({ type: "health_changed", delta: health[reason], reason });
   }
 
@@ -131,26 +187,19 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
     credits += bonusCredits;
     events.push({ type: "locked_in", goalId: goal.id });
     events.push({ type: "points", score: bonus, credits: bonusCredits, reason: "goal_locked_in" });
-    return { ...goal, progress: 1, status: "locked_in", risk: 0, lockedInOn: checkIn.date };
-  });
-
-  // History: append today's result and keep the last `history.days` days.
-  const habits = state.habits.map((h): Habit => {
-    const entry = entries.get(h.id);
-    if (!entry) return h;
-    const today: HabitDay = { date: checkIn.date, result: entry.result, ...(entry.reason ? { reason: entry.reason } : {}) };
-    const history = [...h.history, today].filter((d) => daysBetween(d.date, checkIn.date) < config.history.days);
-    return { ...h, history };
+    return { ...goal, progress: 1, status: "locked_in", risk: 0, lockedInOn: date };
   });
 
   return {
     state: {
       ...state,
-      today: checkIn.date,
+      today: date,
       score,
       credits,
       goals,
       habits,
+      resistance,
+      rules: [...state.rules, ...newRules],
       character: { ...state.character, health: endHealth, strength: endStrength, graceDaysLeft },
       weekProgress,
     },
