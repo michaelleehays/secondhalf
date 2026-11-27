@@ -136,3 +136,25 @@ describe("closeWeek", () => {
     expect(input).toEqual(before);
   });
 });
+
+describe("Season rollover", () => {
+  // Sample season 1 starts Monday 2026-10-26; its 12th Sunday is 2027-01-17.
+  const lastSunday = "2027-01-17";
+  const used = { ...moved, season: { ...moved.season, autoRecoveryUsed: true, lifeEventPauseUsed: true } };
+
+  it("season rollover: after 12 weeks the next season starts the Monday after, with Recovery allowances back", () => {
+    const { state, events } = closeWeek(used, lastSunday);
+    expect(state.season).toEqual({ index: 2, startsOn: "2027-01-18", focus: SAMPLE_STATE.season.focus, autoRecoveryUsed: false, lifeEventPauseUsed: false });
+    expect(events.some((e) => (e.type as string).startsWith("season"))).toBe(false);
+  });
+
+  it("season rollover: not before the 12th week ends", () => {
+    expect(closeWeek(used, "2027-01-10").state.season).toBe(used.season);
+  });
+
+  it("season rollover: a fresh season lets auto Recovery start again", () => {
+    const low = { ...used, character: { ...used.character, health: 10 } };
+    expect(closeWeek(low, "2027-01-10").state.recovery).toBeNull();
+    expect(closeWeek(low, lastSunday).state.recovery?.cause).toBe("auto");
+  });
+});
