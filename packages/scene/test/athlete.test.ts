@@ -114,3 +114,38 @@ describe("disposeMaterial", () => {
     expect(n).toBe(2);
   });
 });
+
+describe("prepareMaterialTextures", () => {
+  it("puts colour maps in sRGB and data maps in linear, and raises anisotropy", async () => {
+    const { prepareMaterialTextures } = await import("../src/athlete");
+    const mat = new THREE.MeshPhysicalMaterial({
+      map: new THREE.Texture(),
+      emissiveMap: new THREE.Texture(),
+      normalMap: new THREE.Texture(),
+      roughnessMap: new THREE.Texture(),
+    });
+    mat.normalMap!.colorSpace = THREE.SRGBColorSpace; // wrong on purpose
+    prepareMaterialTextures(mat, 16);
+    expect(mat.map!.colorSpace).toBe(THREE.SRGBColorSpace);
+    expect(mat.emissiveMap!.colorSpace).toBe(THREE.SRGBColorSpace);
+    expect(mat.normalMap!.colorSpace).toBe(THREE.NoColorSpace);
+    expect(mat.roughnessMap!.colorSpace).toBe(THREE.NoColorSpace);
+    expect(mat.map!.anisotropy).toBe(8);
+  });
+
+  it("keeps a textured skin material on the athlete", async () => {
+    const model = await load("athlete_mobile.glb");
+    let skin: THREE.MeshStandardMaterial | null = null;
+    model.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) if (mat.name === "Skin") skin = mat as THREE.MeshStandardMaterial;
+    });
+    const tex = new THREE.Texture();
+    tex.colorSpace = THREE.NoColorSpace;
+    skin!.map = tex;
+    createAthlete(model);
+    expect(skin!.map).toBe(tex);
+    expect(tex.colorSpace).toBe(THREE.SRGBColorSpace);
+  });
+});
