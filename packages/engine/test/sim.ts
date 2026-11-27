@@ -4,7 +4,7 @@
  */
 import { DEFAULT_RULES, type CheckInEntry, type GameEvent, type GameState, type IsoDate, type ResistanceId, type RulesConfig } from "@second-half/contracts";
 import { SAMPLE_STATE } from "@second-half/contracts/fixtures";
-import { closeDay, closeReview, closeWeek } from "../src/index";
+import { closeDay, closeReview, closeWeek, verifyAchievement } from "../src/index";
 
 /** mulberry32: small, fast, seeded. No Math.random anywhere in the simulation. */
 export function rng(seed: number) {
@@ -69,7 +69,7 @@ function retarget(state: GameState): GameState {
 
 export interface Step {
   date: IsoDate;
-  kind: "day" | "week" | "review";
+  kind: "day" | "week" | "review" | "verify";
   before: GameState;
   state: GameState;
   events: GameEvent[];
@@ -113,6 +113,9 @@ export function simulate(profile: Profile, seed: number, options: SimOptions = {
   for (let i = 0; i < days; i++) {
     const date = addDays(start.today, i + 1);
     const plan = profile(i);
+    // A milestone that reached the verify point is confirmed the next morning (the player ran the 5K).
+    const ready = steps.flatMap((s) => (s.date === addDays(date, -1) ? s.events : [])).flatMap((e) => (e.type === "ready_to_verify" ? [e.goalId] : []));
+    for (const goalId of ready) push("verify", date, verifyAchievement(state, goalId, date, "simulated", config));
     state = retarget(state);
     const entries: CheckInEntry[] = state.habits
       .filter((h) => state.modes[h.area] !== "rest")

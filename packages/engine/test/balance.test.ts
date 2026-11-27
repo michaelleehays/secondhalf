@@ -56,6 +56,15 @@ describe("balance targets (PROPOSED_RULES)", () => {
   it("strength: a month of misses drops it by at least 20", () => {
     for (const s of b.collapse) expect(s.strengthDrop61to91).toBeGreaterThanOrEqual(20);
   });
-  // Pacing moves to the consistent-weeks progress model (contracts #29) and is measured in that PR.
-  it.todo("pacing: 101 takes about 3 to 4 months at 90%, each later level about 1.5x longer");
+  it("pacing: 101 takes about 3 to 4 months at 90%, and each later level takes longer than the one before", () => {
+    // Two years, so the consistent player can reach 501.
+    for (const s of balance(PROPOSED_RULES, { seeds: SEEDS, days: 728 }).consistent) {
+      const at = [1, s.reached[2], s.reached[3], s.reached[4], s.reached[5]];
+      expect(at.every((d) => d !== null)).toBe(true);
+      const spans = at.slice(1).map((d, i) => d! - at[i]!);
+      expect(spans[0]).toBeGreaterThanOrEqual(80);
+      expect(spans[0]).toBeLessThanOrEqual(125);
+      for (let i = 1; i < spans.length; i++) expect(spans[i]!).toBeGreaterThan(spans[i - 1]!);
+    }
+  });
 });

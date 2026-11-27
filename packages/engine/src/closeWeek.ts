@@ -16,6 +16,7 @@ import { addDays, daysBetween } from "./resistance";
 import { maintenanceCap } from "./maintenance";
 import { withAutoRecovery } from "./recovery";
 import { repeatUnfinishedWeeks } from "./programs";
+import { applyConsistentWeek } from "./progress";
 import { raiseRisk } from "./risk";
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -44,6 +45,8 @@ const missedBeyondGraceThisWeek = (goal: Goal, habits: Habit[], weekEnding: IsoD
  *    - milestone, locked in: in full (its last quarterly check passed or is not yet due);
  *    - milestone, at risk (failed check): `points.milestoneVestedShare` of it, which vests for life;
  *    - system, locked in: in full if its habits made progress this week, otherwise nothing.
+ * 2b. Consistent weeks: a goal whose habits reached `progress.consistentWeekShare` of their weekly targets
+ *    gains `1 / progress.weeksToLockIn[level]` (see `applyConsistentWeek`). Paid dividends start next week.
  * 3. At-risk goals whose habits missed beyond grace this week: risk + `risk.perBadWeek` (100 → lost ground).
  * 4. Grace refills to `grace.perMonth` (never taking away bought days) when `weekEnding` starts a new month.
  * 5. Program weeks short of their threshold start again (not in Recovery). `weekProgress` resets, levels are checked, and `today` becomes `weekEnding`.
@@ -101,6 +104,11 @@ export function closeWeek(state: GameState, weekEnding: IsoDate, config: RulesCo
     events.push({ type: "points", score: points, credits: 0, reason: "dividend", sourceId: goal.id });
   }
 
+  // 2b. Consistent weeks: goals whose habits hit their weekly target move toward locking in (not in Recovery).
+  const totals = { score, credits: state.credits };
+  if (!inRecovery) goals = applyConsistentWeek(state, goals, weekEnding, totals, config, events);
+  score = totals.score;
+
   // 3. Risk escalation.
   goals = goals.map((goal) =>
     !inRecovery && goal.status === "at_risk" && !goal.frozen && missedBeyondGraceThisWeek(goal, state.habits, weekEnding)
@@ -127,6 +135,7 @@ export function closeWeek(state: GameState, weekEnding: IsoDate, config: RulesCo
         ...state,
         today: weekEnding,
         score,
+        credits: totals.credits,
         goals,
         resistance,
         character: { ...state.character, strength, graceDaysLeft },

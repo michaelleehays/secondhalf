@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_RULES as R, type GameState, type Goal } from "@second-half/contracts";
 import { SAMPLE_STATE } from "@second-half/contracts/fixtures";
-import { checkLevels, closeDay, quarterlyCheck } from "../src/index";
+import { checkLevels, closeDay, closeWeek, quarterlyCheck } from "../src/index";
 
 // Sample: Level 2 (201). Ring 1 holds 4 of 5 (body, mind, work locked in; money at risk; people in progress).
 // Ring 2: body 0.4, mind 0.2 in progress; work, money open; people hidden. Rings 3 and 4 hidden.
@@ -45,6 +45,16 @@ describe("Levels", () => {
     const { state } = checkLevels(lockRing2(SAMPLE_STATE, "body", "mind", "work", "money"));
     for (const id of ["body-301", "mind-301", "work-301", "money-301"]) expect(goal(state, id).status).toBe("open");
     expect(goal(state, "people-301").status).toBe("hidden");
+  });
+
+  it("an area taken after the level-up opens its next goal at the following level check", () => {
+    // Level 201 with people-101 still in progress: people-201 stays hidden until people-101 is held.
+    expect(goal(checkLevels(SAMPLE_STATE).state, "people-201").status).toBe("hidden");
+    const taken = set(SAMPLE_STATE, { "people-101": { status: "locked_in", progress: 1 } });
+    const { state, events } = checkLevels(taken);
+    expect(goal(state, "people-201").status).toBe("open");
+    expect(state.level).toBe(2);
+    expect(events).toEqual([]);
   });
 
   it("dropping a level: lost ground leaves ring below with fewer than goalsToClear and the player drops", () => {
@@ -130,9 +140,19 @@ describe("Levels", () => {
     expect(checkLevels(lockRing2(SAMPLE_STATE, "body", "mind", "work"), config).state.level).toBe(3);
   });
 
-  it("runs at the end of closeDay: a lock-in that clears the ring levels up the same night", () => {
-    const start = set(lockRing2(SAMPLE_STATE, "mind", "work", "money"), { "body-201": { progress: 1 - R.progress.perFull } });
-    const { state, events } = closeDay(start, { date: DATE, entries: [{ habitId: "run", result: "full" }] });
+  it("runs at the end of closeWeek: a lock-in that clears the ring levels up the same night", () => {
+    // body-201 is a verified milestone one consistent week short of the verify point; run (Focus target 4) hits it.
+    const verifyAt = R.progress.milestoneVerifyAt;
+    const week = Array.from({ length: 4 }, (_, i) => ({ date: `2026-11-${24 + i}`, result: "full" as const }));
+    const start = set(lockRing2(SAMPLE_STATE, "mind", "work", "money"), {
+      "body-201": { progress: verifyAt - 1 / R.progress.weeksToLockIn[2], verifiedOn: "2026-11-20" },
+    });
+    const withRuns = {
+      ...start,
+      habits: start.habits.map((h) => (h.id === "run" ? { ...h, history: week } : h)),
+      weekProgress: { body: true, mind: true, work: true, people: true, money: true },
+    };
+    const { state, events } = closeWeek(withRuns, "2026-11-29");
     expect(goal(state, "body-201").status).toBe("locked_in");
     expect(state.level).toBe(3);
     const types = events.map((e) => e.type);

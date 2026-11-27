@@ -20,6 +20,7 @@ import { withLevels } from "./levels";
 import { recoveryDay, withAutoRecovery } from "./recovery";
 import { maintenanceCap } from "./maintenance";
 import { applyProgramSessions } from "./programs";
+import { moveGoal, movable } from "./progress";
 import { applyDayRisk } from "./risk";
 import { withKnockedDown } from "./character";
 
@@ -30,19 +31,13 @@ const tidy = (n: number) => Math.round(n * 1e9) / 1e9;
 /** True when the habit's last recorded check-in was a miss, so a miss today is the second in a row. */
 const lastWasMiss = (habit: Habit) => habit.history[habit.history.length - 1]?.result === "missed";
 
-/** Goals a check-in can move: on the current level or below, not frozen, and not locked in. */
-function movable(goal: Goal, state: GameState): boolean {
-  if (goal.frozen || goal.level > state.level) return false;
-  return goal.status === "open" || goal.status === "in_progress" || goal.status === "lost";
-}
-
 /**
  * Nightly check-in. Pure: returns a new state and the events to show, never mutates `state`.
  *
  * - Programs: done entries on a program goal fill sessions of its current week (see `applyProgramSessions`);
  *   such goals move only by finished weeks.
- * - Done / Minimum: score (× level multiplier) and credits, health restore, strength gain, goal progress,
- *   and the area marked as moved this week. A goal that reaches 1 locks in and pays its lock-in bonus.
+ * - Done / Minimum: score (× level multiplier) and credits, health restore, strength gain, and the area marked
+ *   as moved this week. Goals don't move per check-in: they move by consistent weeks in `closeWeek`.
  * - Missed: grace days absorb misses first (costliest misses first); a miss with no grace left costs health,
  *   and a second miss in a row on the same habit (its last two check-ins) costs `doubleMissFactor` × that.
  *   A grace day removes the damage, not the miss, so the streak still counts.
@@ -93,7 +88,6 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
 
   const health = { habit: 0, miss: 0, double_miss: 0, setback: 0 };
   let strengthGain = 0;
-  const progressGain = new Map<string, number>();
   const sessions = new Map<string, number>();
   const programGoals = new Set(state.programs.map((p) => p.goalId));
   const resistanceDelta = new Map<ResistanceId, number>();
@@ -140,9 +134,7 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
     health.habit += full ? config.health.fullRestore : config.health.minimumRestore;
     strengthGain += full ? config.strength.fullGain : config.strength.minimumGain;
     weekProgress[habit.area] = true;
-    const step = full ? config.progress.perFull : config.progress.perMinimum;
     if (programGoals.has(habit.goalId)) sessions.set(habit.goalId, (sessions.get(habit.goalId) ?? 0) + 1);
-    else progressGain.set(habit.goalId, (progressGain.get(habit.goalId) ?? 0) + step);
   }
 
   // History: append today's result and keep the last `history.days` days.
@@ -223,31 +215,22 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
   // Programs: sessions toward the current week, for goals a check-in can move.
   for (const id of sessions.keys()) {
     const g = state.goals.find((x) => x.id === id);
-    if (!g || !movable(g, state)) sessions.delete(id);
+    if (!g || !movable(g, state.level)) sessions.delete(id);
   }
   const programDay = applyProgramSessions(state, sessions, { score, credits }, config, events);
   score = programDay.score;
   credits = programDay.credits;
 
-  // Goal progress and lock-ins. Program goals move only by finished weeks.
+  // Program goals move by finished weeks; finishing the program verifies a milestone. Other goals move
+  // by consistent weeks at the weekly rollover (see `applyConsistentWeek`).
+  const totals = { score, credits };
   const progressed = state.goals.map((goal): Goal => {
-    if (!movable(goal, state)) return goal;
     const target = programDay.progress.get(goal.id);
-    const gain = progressGain.get(goal.id);
-    if (target === undefined && !gain) return goal;
-    const to = tidy(clamp(target ?? goal.progress + gain!, 0, 1));
-    if (to === goal.progress) return goal;
-    events.push({ type: "progress", goalId: goal.id, from: goal.progress, to });
-    if (to < 1) return { ...goal, progress: to, status: goal.status === "open" ? "in_progress" : goal.status };
-
-    const bonus = Math.round(config.points.goalLockedInPerLevel * goal.level * mult);
-    const bonusCredits = config.credits.goalLockedInPerLevel * goal.level;
-    score += bonus;
-    credits += bonusCredits;
-    events.push({ type: "locked_in", goalId: goal.id });
-    events.push({ type: "points", score: bonus, credits: bonusCredits, reason: "goal_locked_in", sourceId: goal.id });
-    return { ...goal, progress: 1, status: "locked_in", risk: 0, lockedInOn: date };
+    if (target === undefined || !movable(goal, state.level)) return goal;
+    return moveGoal(goal, target, { date, level: state.level, totals, verifies: target >= 1 }, config, events);
   });
+  score = totals.score;
+  credits = totals.credits;
 
   // At risk, clean days, setback pressure and lost ground.
   const goals = applyDayRisk(progressed, { state, habits, entries, countedFull, graced, setbackAreas, date }, events, config);
