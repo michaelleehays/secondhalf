@@ -9,7 +9,8 @@ import { closeDay } from "./closeDay";
 import { quarterlyCheck } from "./risk";
 
 export { closeDay } from "./closeDay";
-export { quarterlyCheck } from "./risk";
+export { quarterlyCheck, raiseRisk } from "./risk";
+export { checkLevels } from "./levels";
 
 /**
  * Game engine. Workstream A implements closeDay, closeWeek, startLifeEvent and equipGamePlan

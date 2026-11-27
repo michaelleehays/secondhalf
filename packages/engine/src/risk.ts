@@ -10,6 +10,7 @@ import {
   type RulesConfig,
   type StepResult,
 } from "@second-half/contracts";
+import { withLevels } from "./levels";
 import { daysBetween } from "./resistance";
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -136,5 +137,6 @@ export function quarterlyCheck(
     events.push({ type: "at_risk", goalId: goal.id, risk: config.risk.onTrigger });
     return { ...goal, status: "at_risk", risk: config.risk.onTrigger };
   });
-  return { state: events.length || goals.some((g, i) => g !== state.goals[i]) ? { ...state, goals } : state, events };
+  const result = { state: events.length || goals.some((g, i) => g !== state.goals[i]) ? { ...state, goals } : state, events };
+  return withLevels(result, config);
 }
