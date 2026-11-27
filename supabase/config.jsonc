@@ -472,6 +472,15 @@
     "backend": "postgres"
   },
 
+  // Edge Functions.
+  "functions": {
+    // The weekly rollover is called by pg_cron, not a signed-in player, so it skips JWT checks and
+    // instead requires the X-Close-Week-Secret header to match the CLOSE_WEEK_SECRET function secret.
+    "close-week": {
+      "verify_jwt": false
+    }
+  },
+
   // Experimental features may be deprecated any time
   "experimental": {
     // Configures S3 bucket URL, eg. <bucket_name>.s3-<region>.amazonaws.com

@@ -46,6 +46,10 @@ export interface Goal {
   lockedInOn?: IsoDate;
   /** Milestone goals only: date of the last passed quarterly check. */
   lastQuarterlyCheck?: IsoDate;
+  /** Milestone goals only: when a real achievement verified the goal (it locks in then). */
+  verifiedOn?: IsoDate;
+  /** What counts as the real achievement for this goal, in the player's words (e.g. "Run a timed 5K"). */
+  verification?: string;
 }
 
 export interface ProgramWeek {
@@ -69,7 +73,10 @@ export interface HabitDay {
   date: IsoDate;
   result: CheckInResult;
   reason?: ResistanceId;
-  /** True when a grace day covered this miss. Graced misses do not count toward the at-risk pattern. */
+  /**
+   * True for a miss that doesn't count toward patterns (the at-risk pattern and double misses):
+   * a grace day covered it, or it happened during Recovery.
+   */
   graced?: boolean;
 }
 
@@ -152,6 +159,11 @@ export interface CharacterState {
   /** 0..100. Long-run consistency. Drives build. */
   strength: number;
   graceDaysLeft: number;
+  /**
+   * Present while knocked down (health reached rules.health.knockedDownAt). Each done or minimum entry adds 1 to
+   * `plays`; at rules.health.getUpAfterPlays it is cleared and health becomes rules.health.getUpHealth.
+   */
+  knockedDown?: { since: IsoDate; plays: number };
 }
 
 export interface RecoveryState {
@@ -219,6 +231,10 @@ export interface GameState {
   character: CharacterState;
   recovery: RecoveryState | null;
   season: Season;
+  /** Player-chosen level names. Missing levels use the defaults (Foundations, Momentum, Mastery, Legacy, The Vision). */
+  levelNames?: Partial<Record<Level, string>>;
+  /** Date of the last completed Sunday review; one review pays per Monday–Sunday week. */
+  lastReviewOn?: IsoDate;
   /** Areas with any done/minimum habit since the week started. */
   weekProgress: Partial<Record<AreaId, boolean>>;
 }
@@ -242,12 +258,46 @@ export type GameEvent =
   | { type: "rule_adjusted"; rule: RuleAdjustment }
   | { type: "recovery_started"; cause: RecoveryState["cause"] }
   | { type: "recovery_ended"; completed: boolean }
-  | { type: "knocked_down" };
+  | { type: "knocked_down" }
+  /** A plan edit was not applied; `reason` is shown to the player. */
+  | { type: "plan_rejected"; edit: PlanEdit["kind"]; reason: string }
+  /** A milestone goal reached rules.progress.milestoneVerifyAt and is waiting for a real achievement. */
+  | { type: "ready_to_verify"; goalId: string }
+  /** A real achievement was confirmed for a milestone goal. */
+  | { type: "verified"; goalId: string; note?: string }
+  /** Equipping would pass rules.resistance.maxEquippedPlans; state unchanged. */
+  | { type: "game_plan_refused"; gamePlanId: string; max: number }
+  /** More weekly maintenance habits than rules.maintenance.maxWeeklyHabits; the UI offers merge, convert or retire. */
+  | { type: "maintenance_cap"; count: number; max: number; habitIds: string[] };
 
 export interface StepResult {
   state: GameState;
   events: GameEvent[];
 }
+
+/* ---------- Designing your levels ---------- */
+
+/** One edit the player makes to their plan: what each level is, its goals and the habits that feed them. */
+export type PlanEdit =
+  | { kind: "rename_level"; level: Level; name: string }
+  | {
+      kind: "set_goal";
+      goalId: string;
+      title?: string;
+      goalKind?: GoalKind;
+      verification?: string;
+    }
+  | { kind: "add_habit"; habit: Omit<Habit, "history"> }
+  | {
+      kind: "update_habit";
+      habitId: string;
+      title?: string;
+      fullDose?: string;
+      minimumDose?: string;
+      weeklyTarget?: Record<AreaMode, number>;
+      goalId?: string;
+    }
+  | { kind: "retire_habit"; habitId: string };
 
 /* ---------- Engine interface (implemented by packages/engine) ---------- */
 
@@ -264,6 +314,19 @@ export interface Engine {
    * A pass sets lastQuarterlyCheck. A fail puts the goal at risk at rules.risk.onTrigger.
    */
   quarterlyCheck(state: GameState, goalId: string, passed: boolean, date: IsoDate): StepResult;
+  /** Sunday review completed: pays points.weeklyReview and credits.weeklyReview once per Monday–Sunday week. */
+  closeReview(state: GameState, date: IsoDate): StepResult;
+  /**
+   * The player confirms a real achievement for a milestone goal (ran the 5K, the fund reached $5,000).
+   * At or above rules.progress.milestoneVerifyAt the goal locks in with its bonus; below it, the achievement
+   * is recorded (verifiedOn) and the goal locks in as soon as consistency carries it to that point.
+   */
+  verifyAchievement(state: GameState, goalId: string, date: IsoDate, note?: string): StepResult;
+  /**
+   * Apply one plan edit. Pure. An edit the rules don't allow leaves the state unchanged and emits plan_rejected
+   * with a coach-voice reason (e.g. changing a locked-in goal's kind).
+   */
+  applyPlanEdit(state: GameState, edit: PlanEdit, date: IsoDate): StepResult;
   /** Projected final score at endAge at the current pace. */
   projectedFinalScore(state: GameState): number;
   /** What the 3D scene needs to draw. */

@@ -6,27 +6,35 @@ import {
   type WorldView,
 } from "@second-half/contracts";
 import { closeDay } from "./closeDay";
+import { closeWeek } from "./closeWeek";
+import { closeReview, equipGamePlan } from "./player";
+import { startLifeEvent } from "./recovery";
 import { quarterlyCheck } from "./risk";
 
 export { closeDay } from "./closeDay";
+export { closeWeek } from "./closeWeek";
+export { recoveryHabit, startLifeEvent } from "./recovery";
+export { closeReview, equipGamePlan } from "./player";
 export { quarterlyCheck, raiseRisk } from "./risk";
 export { checkLevels } from "./levels";
 
 /**
- * Game engine. Workstream A implements closeDay, closeWeek, startLifeEvent and equipGamePlan
- * against the rules in the design doc, with tests for each rule.
+ * Game engine: every rule in the design doc, with a test named after each rule.
  * Every function is pure: it returns a new state and never mutates its input.
  */
 export function createEngine(config: RulesConfig = DEFAULT_RULES): Engine {
-  const notYet = (name: string) => () => {
-    throw new Error(`engine.${name} is not implemented yet (workstream A)`);
-  };
-
   return {
     closeDay: (state, checkIn) => closeDay(state, checkIn, config),
-    closeWeek: notYet("closeWeek"),
-    startLifeEvent: notYet("startLifeEvent"),
-    equipGamePlan: notYet("equipGamePlan"),
+    closeWeek: (state, weekEnding) => closeWeek(state, weekEnding, config),
+    startLifeEvent: (state, date) => startLifeEvent(state, date, config),
+    equipGamePlan: (state, gamePlanId, equipped) => equipGamePlan(state, gamePlanId, equipped, config),
+    closeReview: (state, date) => closeReview(state, date, config),
+    verifyAchievement: () => {
+      throw new Error("engine.verifyAchievement is not implemented yet (workstream A)");
+    },
+    applyPlanEdit: () => {
+      throw new Error("engine.applyPlanEdit is not implemented yet (workstream A)");
+    },
     quarterlyCheck: (state, goalId, passed, date) => quarterlyCheck(state, goalId, passed, date, config),
     projectedFinalScore: (state) => projectedFinalScore(state, config),
     toWorldView,
@@ -67,7 +75,7 @@ export function toWorldView(state: GameState): WorldView {
       strength,
       build: Math.max(-1, Math.min(1, (strength - 50) / 40)),
       slump: health < 35 ? 1 : 0,
-      knockedDown: health <= 0,
+      knockedDown: state.character.knockedDown !== undefined || health <= 0,
     },
     resistance: Object.values(state.resistance).map((r) => {
       const attacked = state.goals.find((g) => g.area === r.targetArea && g.status === "at_risk");

@@ -28,8 +28,13 @@ export interface ProfileRow {
   timezone: string;
   today: string;
   level: number;
+  best_level: number | null;
+  last_review_on: string | null;
+  level_names: Partial<Record<Level, string>> | null;
   score: number;
   credits: number;
+  /** Bumped by every save; pass it back as the expected version. */
+  version: number;
 }
 export interface AreaRow { area: AreaId; mode: AreaMode; week_progress: boolean }
 export interface GoalRow {
@@ -44,6 +49,8 @@ export interface GoalRow {
   frozen: boolean;
   locked_in_on: string | null;
   last_quarterly_check: string | null;
+  verification: string | null;
+  verified_on: string | null;
 }
 export interface ProgramRow {
   id: string;
@@ -65,7 +72,14 @@ export interface HabitRow {
   weekly_target_rest: number;
   maintenance: boolean;
 }
-export interface CheckInRow { habit_id: string; date: string; result: CheckInResult; reason: ResistanceId | null }
+export interface CheckInRow {
+  habit_id: string;
+  date: string;
+  result: CheckInResult;
+  reason: ResistanceId | null;
+  /** Absent in rows from before the graced column existed. */
+  graced?: boolean;
+}
 export interface ResistanceRow { id: ResistanceId; strength: number; reports_14d: number; target_area: AreaId }
 export interface GamePlanRow { id: string; resistance: ResistanceId; text: string; equipped: boolean }
 export interface RuleRow {
@@ -76,7 +90,13 @@ export interface RuleRow {
   starts_on: string;
   ends_on: string;
 }
-export interface CharacterRow { health: number; strength: number; grace_days_left: number }
+export interface CharacterRow {
+  health: number;
+  strength: number;
+  grace_days_left: number;
+  knocked_down_since: string | null;
+  knocked_down_plays: number | null;
+}
 export interface RecoveryRow {
   cause: "auto" | "life_event";
   started_on: string;
@@ -120,6 +140,7 @@ const habitDay = (c: CheckInRow): HabitDay => ({
   date: c.date,
   result: c.result,
   ...(c.reason ? { reason: c.reason } : {}),
+  ...(c.graced ? { graced: true } : {}),
 });
 
 /** Rows to a GameState. Habit history comes from check-ins, oldest first. */
@@ -154,6 +175,9 @@ export function toGameState(snap: GameSnapshot): GameState {
     today: snap.profile.today,
     timezone: snap.profile.timezone,
     level: snap.profile.level as Level,
+    ...(snap.profile.best_level != null ? { bestLevel: snap.profile.best_level as Level } : {}),
+    ...(snap.profile.last_review_on != null ? { lastReviewOn: snap.profile.last_review_on } : {}),
+    ...(snap.profile.level_names != null ? { levelNames: snap.profile.level_names } : {}),
     score: snap.profile.score,
     credits: snap.profile.credits,
     modes,
@@ -170,6 +194,8 @@ export function toGameState(snap: GameSnapshot): GameState {
         frozen: g.frozen,
         ...(g.locked_in_on ? { lockedInOn: g.locked_in_on } : {}),
         ...(g.last_quarterly_check ? { lastQuarterlyCheck: g.last_quarterly_check } : {}),
+        ...(g.verification != null ? { verification: g.verification } : {}),
+        ...(g.verified_on ? { verifiedOn: g.verified_on } : {}),
       }),
     ),
     programs: snap.programs.map(
@@ -211,6 +237,9 @@ export function toGameState(snap: GameSnapshot): GameState {
       health: snap.character.health,
       strength: snap.character.strength,
       graceDaysLeft: snap.character.grace_days_left,
+      ...(snap.character.knocked_down_since != null && snap.character.knocked_down_plays != null
+        ? { knockedDown: { since: snap.character.knocked_down_since, plays: snap.character.knocked_down_plays } }
+        : {}),
     },
     recovery: snap.recovery
       ? {
@@ -246,11 +275,12 @@ export function ledgerFromEvents(result: StepResult): LedgerEntry[] {
 }
 
 /** Arguments for the save_step_result RPC. */
-export function toSaveArgs(userId: string, result: StepResult) {
+export function toSaveArgs(userId: string, result: StepResult, expectedVersion?: number) {
   return {
     p_user_id: userId,
     p_state: result.state,
     p_ledger: ledgerFromEvents(result),
     p_events: result.events,
+    p_expected_version: expectedVersion ?? null,
   };
 }

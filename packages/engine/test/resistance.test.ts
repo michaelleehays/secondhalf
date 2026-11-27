@@ -29,10 +29,23 @@ describe("Resistance", () => {
     expect(events).toContainEqual({ type: "resistance_changed", id: "fatigue", strength: 3 });
   });
 
-  it("each reason given counts, also on misses a grace day absorbs", () => {
-    const { state } = day(SAMPLE_STATE, missed("run", "fatigue"), missed("meditate", "fatigue"));
-    expect(state.character.graceDaysLeft).toBe(0);
-    expect(state.resistance.fatigue.strength).toBe(4);
+  it("a reason given counts also on misses a grace day absorbs", () => {
+    const { state } = day(SAMPLE_STATE, missed("run", "fatigue"));
+    expect(state.character.graceDaysLeft).toBe(SAMPLE_STATE.character.graceDaysLeft - 1);
+    expect(state.resistance.fatigue.strength).toBe(SAMPLE_STATE.resistance.fatigue.strength + 1);
+  });
+
+  it("a Resistance gains at most 1 a night, however many habits report it", () => {
+    const { state, events } = day(SAMPLE_STATE, missed("run", "fatigue"), missed("meditate", "fatigue"), missed("deep-work", "fatigue"));
+    expect(state.resistance.fatigue.strength).toBe(SAMPLE_STATE.resistance.fatigue.strength + 1);
+    expect(events.filter((e) => e.type === "resistance_changed" && e.id === "fatigue")).toHaveLength(1);
+  });
+
+  it("after a setback, the next night cannot set back again, however many habits report the reason", () => {
+    const first = day(SAMPLE_STATE, missed("no-impulse", "temptation"));
+    const second = closeDay(first.state, { date: "2026-11-28", entries: [missed("no-impulse", "temptation"), missed("run", "temptation"), missed("meditate", "temptation")] });
+    expect(second.events.some((e) => e.type === "setback")).toBe(false);
+    expect(second.state.resistance.temptation.strength).toBe(R.resistance.afterSetback + 1);
   });
 
   it("strength is capped at resistance.max", () => {

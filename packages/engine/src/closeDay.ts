@@ -15,8 +15,13 @@ import {
   type StepResult,
 } from "@second-half/contracts";
 import { activeRules, adjustmentFor, daysBetween, hasEffect, reportsIn, usualMissOn } from "./resistance";
+import { appendHistory } from "./history";
 import { withLevels } from "./levels";
+import { recoveryDay, withAutoRecovery } from "./recovery";
+import { maintenanceCap } from "./maintenance";
+import { applyProgramSessions } from "./programs";
 import { applyDayRisk } from "./risk";
+import { withKnockedDown } from "./character";
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 /** Keeps progress sums like 0.97 + 0.03 from landing a hair under 1. */
@@ -25,33 +30,44 @@ const tidy = (n: number) => Math.round(n * 1e9) / 1e9;
 /** True when the habit's last recorded check-in was a miss, so a miss today is the second in a row. */
 const lastWasMiss = (habit: Habit) => habit.history[habit.history.length - 1]?.result === "missed";
 
-/** Goals a check-in can move: on the current level or below, not frozen, not locked in, and not run by a program. */
-function earnsProgress(goal: Goal, state: GameState): boolean {
+/** Goals a check-in can move: on the current level or below, not frozen, and not locked in. */
+function movable(goal: Goal, state: GameState): boolean {
   if (goal.frozen || goal.level > state.level) return false;
-  if (goal.status !== "open" && goal.status !== "in_progress" && goal.status !== "lost") return false;
-  return !state.programs.some((p) => p.goalId === goal.id);
+  return goal.status === "open" || goal.status === "in_progress" || goal.status === "lost";
 }
 
 /**
  * Nightly check-in. Pure: returns a new state and the events to show, never mutates `state`.
  *
+ * - Programs: done entries on a program goal fill sessions of its current week (see `applyProgramSessions`);
+ *   such goals move only by finished weeks.
  * - Done / Minimum: score (× level multiplier) and credits, health restore, strength gain, goal progress,
  *   and the area marked as moved this week. A goal that reaches 1 locks in and pays its lock-in bonus.
  * - Missed: grace days absorb misses first (costliest misses first); a miss with no grace left costs health,
  *   and a second miss in a row on the same habit (its last two check-ins) costs `doubleMissFactor` × that.
  *   A grace day removes the damage, not the miss, so the streak still counts.
- * - Resistance: each reason given raises that Resistance by 1; doing a habit on a weekday it is usually
+ * - Resistance: a reason given raises that Resistance by 1 (at most 1 a night, however many habits report it); doing a habit on a weekday it is usually
  *   missed knocks that Resistance down by 1. A Resistance reported while at `setbackAt` causes a setback
  *   (halved by an equipped game plan) and, if no rule for it is in force, a rule adjustment; it then drops
  *   to `afterSetback`, so it cannot hit every day in a row.
  * - At risk and lost ground: see `applyDayRisk`. Levels are checked last: see `checkLevels`.
  * - Rule adjustments in force change how entries count (see `RuleEffect`).
+ * - Strength: + `fullGain` / `minimumGain` per done habit, − `strength.missCost` per miss grace didn't cover,
+ *   − `strength.dailyDecay` × current strength each night, so it settles where gains and decay meet.
  * - Health and strength changes are summed and clamped once, so entry order never matters.
  * - Score is never taken away.
+ *
+ * - In Recovery the day runs `recoveryDay` instead; otherwise Recovery may start automatically at the end
+ *   (see `withAutoRecovery`).
+ * - Knocked down: reaching `health.knockedDownAt` sets `character.knockedDown` and emits `knocked_down`.
+ *   While down, habits restore no health (points and credits still score); each done or minimum entry is a
+ *   play, and `health.getUpAfterPlays` plays get the athlete up at `health.getUpHealth`.
+ * - Maintenance cap: on a night a system goal locks in, `maintenance_cap` if the cap is passed.
  *
  * Callers must close each date once: closing the same date twice counts it twice.
  */
 export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig = DEFAULT_RULES): StepResult {
+  if (state.recovery) return recoveryDay(state, checkIn, config);
   const events: GameEvent[] = [];
   const date = checkIn.date;
   const mult = config.levelMultiplier[state.level];
@@ -78,6 +94,8 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
   const health = { habit: 0, miss: 0, double_miss: 0, setback: 0 };
   let strengthGain = 0;
   const progressGain = new Map<string, number>();
+  const sessions = new Map<string, number>();
+  const programGoals = new Set(state.programs.map((p) => p.goalId));
   const resistanceDelta = new Map<ResistanceId, number>();
   const reported = new Set<ResistanceId>();
   const countedFull = new Set<string>();
@@ -88,7 +106,8 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
     const habit = habitsById.get(entry.habitId)!;
 
     if (entry.result === "missed") {
-      if (entry.reason) {
+      // A Resistance gains at most 1 a night, however many habits report it.
+      if (entry.reason && !reported.has(entry.reason)) {
         bump(entry.reason, 1);
         reported.add(entry.reason);
       }
@@ -122,22 +141,12 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
     strengthGain += full ? config.strength.fullGain : config.strength.minimumGain;
     weekProgress[habit.area] = true;
     const step = full ? config.progress.perFull : config.progress.perMinimum;
-    progressGain.set(habit.goalId, (progressGain.get(habit.goalId) ?? 0) + step);
+    if (programGoals.has(habit.goalId)) sessions.set(habit.goalId, (sessions.get(habit.goalId) ?? 0) + 1);
+    else progressGain.set(habit.goalId, (progressGain.get(habit.goalId) ?? 0) + step);
   }
 
   // History: append today's result and keep the last `history.days` days.
-  const habits = state.habits.map((h): Habit => {
-    const entry = entries.get(h.id);
-    if (!entry) return h;
-    const today: HabitDay = {
-      date,
-      result: entry.result,
-      ...(entry.reason ? { reason: entry.reason } : {}),
-      ...(graced.has(h.id) ? { graced: true } : {}),
-    };
-    const history = [...h.history, today].filter((d) => daysBetween(d.date, date) < config.history.days);
-    return { ...h, history };
-  });
+  const habits = appendHistory(state.habits, entries, graced, date, config);
 
   // Resistance: strength, reports, setbacks and rule adjustments.
   const newRules: RuleAdjustment[] = [];
@@ -170,10 +179,16 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
     if (strength !== before.strength) events.push({ type: "resistance_changed", id, strength });
   }
 
+  // Knocked down: habits restore no health; each done or minimum entry is a play toward getting up.
+  const wasDown = state.character.knockedDown;
+  const plays = (wasDown?.plays ?? 0) + [...entries.values()].filter((e) => e.result !== "missed").length;
+  const getsUp = !!wasDown && plays >= config.health.getUpAfterPlays;
+  if (wasDown) health.habit = 0;
+
   // Health: sum, clamp once, then trim the events so they add up to what actually changed.
   const startHealth = state.character.health;
   const raw = startHealth + health.habit + health.miss + health.double_miss + health.setback;
-  const endHealth = clamp(raw, 0, config.health.max);
+  let endHealth = clamp(raw, 0, config.health.max);
   if (raw > endHealth) health.habit -= raw - endHealth;
   if (raw < endHealth) {
     let give = endHealth - raw;
@@ -183,19 +198,44 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
       give -= back;
     }
   }
-  for (const reason of ["habit", "miss", "double_miss", "setback"] as const) {
-    if (health[reason] !== 0) events.push({ type: "health_changed", delta: health[reason], reason });
+  if (getsUp) {
+    // Back up: health is set to getUpHealth, whatever else happened today.
+    endHealth = config.health.getUpHealth;
+    if (endHealth !== startHealth) events.push({ type: "health_changed", delta: endHealth - startHealth, reason: "habit" });
+  } else {
+    for (const reason of ["habit", "miss", "double_miss", "setback"] as const) {
+      if (health[reason] !== 0) events.push({ type: "health_changed", delta: health[reason], reason });
+    }
+  }
+  let knockedDown = wasDown ? (getsUp ? undefined : { ...wasDown, plays }) : undefined;
+  if (!wasDown && endHealth <= config.health.knockedDownAt) {
+    knockedDown = { since: date, plays: 0 };
+    events.push({ type: "knocked_down" });
   }
 
   const startStrength = state.character.strength;
-  const endStrength = clamp(startStrength + strengthGain, 0, config.strength.max);
+  // Strength: gains, minus missCost per miss grace didn't cover, minus dailyDecay of current strength.
+  const uncovered = misses.filter((e) => !graced.has(e.habitId)).length;
+  const strengthLoss = uncovered * config.strength.missCost + startStrength * config.strength.dailyDecay;
+  const endStrength = clamp(tidy(startStrength + strengthGain - strengthLoss), 0, config.strength.max);
   if (endStrength !== startStrength) events.push({ type: "strength_changed", delta: endStrength - startStrength });
 
-  // Goal progress and lock-ins.
+  // Programs: sessions toward the current week, for goals a check-in can move.
+  for (const id of sessions.keys()) {
+    const g = state.goals.find((x) => x.id === id);
+    if (!g || !movable(g, state)) sessions.delete(id);
+  }
+  const programDay = applyProgramSessions(state, sessions, { score, credits }, config, events);
+  score = programDay.score;
+  credits = programDay.credits;
+
+  // Goal progress and lock-ins. Program goals move only by finished weeks.
   const progressed = state.goals.map((goal): Goal => {
+    if (!movable(goal, state)) return goal;
+    const target = programDay.progress.get(goal.id);
     const gain = progressGain.get(goal.id);
-    if (!gain || !earnsProgress(goal, state)) return goal;
-    const to = tidy(clamp(goal.progress + gain, 0, 1));
+    if (target === undefined && !gain) return goal;
+    const to = tidy(clamp(target ?? goal.progress + gain!, 0, 1));
     if (to === goal.progress) return goal;
     events.push({ type: "progress", goalId: goal.id, from: goal.progress, to });
     if (to < 1) return { ...goal, progress: to, status: goal.status === "open" ? "in_progress" : goal.status };
@@ -212,7 +252,7 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
   // At risk, clean days, setback pressure and lost ground.
   const goals = applyDayRisk(progressed, { state, habits, entries, countedFull, graced, setbackAreas, date }, events, config);
 
-  return withLevels({
+  const result = withLevels({
     state: {
       ...state,
       today: date,
@@ -220,11 +260,18 @@ export function closeDay(state: GameState, checkIn: CheckIn, config: RulesConfig
       credits,
       goals,
       habits,
+      programs: programDay.programs,
       resistance,
       rules: [...state.rules, ...newRules],
-      character: { ...state.character, health: endHealth, strength: endStrength, graceDaysLeft },
+      character: withKnockedDown({ ...state.character, health: endHealth, strength: endStrength, graceDaysLeft }, knockedDown),
       weekProgress,
     },
     events,
   }, config);
+  const capped = lockedSystemGoal(events, state) ? maintenanceCap(result.state, config) : undefined;
+  return withAutoRecovery(capped ? { ...result, events: [...result.events, capped] } : result, date, config);
 }
+
+/** True when a system goal locked in during this step. */
+const lockedSystemGoal = (events: GameEvent[], state: GameState) =>
+  events.some((e) => e.type === "locked_in" && state.goals.find((g) => g.id === e.goalId)?.kind === "system");

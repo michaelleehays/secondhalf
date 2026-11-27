@@ -12,7 +12,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import type { GameState } from "@second-half/contracts";
 import { SAMPLE_STATE } from "@second-half/contracts/fixtures";
 import { closeDay } from "@second-half/engine";
-import { createGameApi, SEED_USER } from "../src/index";
+import { createGameApi, SEED_USER, STALE_SAVE } from "../src/index";
 
 const env = process.env;
 const URL_ = env.SUPABASE_URL ?? "http://127.0.0.1:54321";
@@ -131,6 +131,39 @@ describe.skipIf(!env.SUPABASE_INTEGRATION)("game data round-trip (local Supabase
     expect(await api.loadGameState(a.id)).toEqual(before);
     const { count: ledgerAfter } = await a.client.from("ledger").select("*", { count: "exact", head: true });
     expect(ledgerAfter).toBe(ledgerBefore);
+  });
+
+  it("bestLevel, lastReviewOn, levelNames, goal verification and knockedDown survive a save, and clearing them clears them", async () => {
+    const api = createGameApi(a.client);
+    const s = (await api.loadGameState(a.id))!;
+    const knocked: GameState = {
+      ...s,
+      bestLevel: 3,
+      lastReviewOn: "2026-11-22",
+      levelNames: { 1: "Getting started", 2: "Building up" },
+      goals: s.goals.map((g) => (g.id === "body-201" ? { ...g, verification: "Run a timed 10K", verifiedOn: "2026-11-27" } : g)),
+      character: { ...s.character, health: 0, knockedDown: { since: "2026-11-27", plays: 1 } },
+    };
+    await api.saveStepResult(a.id, { state: knocked, events: [] });
+    expect(await api.loadGameState(a.id)).toEqual(knocked);
+
+    const { bestLevel: _best, lastReviewOn: _review, levelNames: _names, ...rest } = knocked;
+    const up: GameState = { ...rest, goals: s.goals, character: { health: 30, strength: s.character.strength, graceDaysLeft: s.character.graceDaysLeft } };
+    await api.saveStepResult(a.id, { state: up, events: [] });
+    expect(await api.loadGameState(a.id)).toEqual(up);
+    await api.saveStepResult(a.id, { state: s, events: [] });
+  });
+
+  it("a save built from an older load is refused when it passes its version", async () => {
+    const api = createGameApi(a.client);
+    const first = (await api.loadVersioned(a.id))!;
+    const v2 = await api.saveStepResult(a.id, { state: { ...first.state, score: first.state.score + 6 }, events: [] }, { expectedVersion: first.version });
+    expect(v2).toBe(first.version + 1);
+    await expect(
+      api.saveStepResult(a.id, { state: { ...first.state, score: first.state.score + 15 }, events: [] }, { expectedVersion: first.version }),
+    ).rejects.toMatchObject({ code: STALE_SAVE });
+    expect((await api.loadGameState(a.id))!.score).toBe(first.state.score + 6);
+    await api.saveStepResult(a.id, { state: first.state, events: [] });
   });
 
   it("a save missing a collection is refused and archives nothing", async () => {
