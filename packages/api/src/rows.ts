@@ -65,7 +65,14 @@ export interface HabitRow {
   weekly_target_rest: number;
   maintenance: boolean;
 }
-export interface CheckInRow { habit_id: string; date: string; result: CheckInResult; reason: ResistanceId | null }
+export interface CheckInRow {
+  habit_id: string;
+  date: string;
+  result: CheckInResult;
+  reason: ResistanceId | null;
+  /** Absent in rows from before the graced column existed. */
+  graced?: boolean;
+}
 export interface ResistanceRow { id: ResistanceId; strength: number; reports_14d: number; target_area: AreaId }
 export interface GamePlanRow { id: string; resistance: ResistanceId; text: string; equipped: boolean }
 export interface RuleRow {
@@ -120,6 +127,7 @@ const habitDay = (c: CheckInRow): HabitDay => ({
   date: c.date,
   result: c.result,
   ...(c.reason ? { reason: c.reason } : {}),
+  ...(c.graced ? { graced: true } : {}),
 });
 
 /** Rows to a GameState. Habit history comes from check-ins, oldest first. */

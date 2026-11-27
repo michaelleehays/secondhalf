@@ -28,7 +28,7 @@ function snapshotOf(s: GameState): GameSnapshot {
       weekly_target_rest: h.weeklyTarget.rest, maintenance: h.maintenance,
     })),
     checkIns: s.habits.flatMap((h) =>
-      h.history.map((d) => ({ habit_id: h.id, date: d.date, result: d.result, reason: d.reason ?? null })),
+      h.history.map((d) => ({ habit_id: h.id, date: d.date, result: d.result, reason: d.reason ?? null, graced: d.graced ?? false })),
     ),
     resistance: Object.values(s.resistance).map((r) => ({
       id: r.id, strength: r.strength, reports_14d: r.reports14d, target_area: r.targetArea,
@@ -54,7 +54,7 @@ const RICH: GameState = {
   goals: SAMPLE_STATE.goals.map((g) => (g.id === "body-101" ? { ...g, lockedInOn: "2026-09-01" } : g)),
   habits: SAMPLE_STATE.habits.map((h) =>
     h.id === "run"
-      ? { ...h, history: [{ date: "2026-11-24", result: "missed", reason: "fatigue" }, { date: "2026-11-25", result: "full" }] }
+      ? { ...h, history: [{ date: "2026-11-24", result: "missed", reason: "fatigue", graced: true }, { date: "2026-11-25", result: "full" }] }
       : h,
   ),
   programs: [{ id: "p-10k", goalId: "body-201", weeks: [{ index: 1, sessions: ["Easy 3K", "Intervals"] }], currentWeek: 1, done: [true, false], threshold: 3 }],
@@ -83,6 +83,7 @@ describe("toGameState", () => {
     expect("lockedInOn" in goal).toBe(false);
     const day = toGameState(snapshotOf(RICH)).habits.find((h) => h.id === "run")!.history[1]!;
     expect("reason" in day).toBe(false);
+    expect("graced" in day).toBe(false);
   });
 
   it("refuses a save with no character", () => {
