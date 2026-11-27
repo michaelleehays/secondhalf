@@ -106,12 +106,14 @@ describe("Maintenance cap", () => {
   });
 
   it("maintenance cap: closeDay emits it on a night a system goal locks in past the cap", () => {
-    // people-101 is a system goal in progress at 0.5; it locks in tonight and brings its maintenance habits into the count.
-    const start: GameState = {
-      ...withMaint(maint(R.maintenance.maxWeeklyHabits + 1, "people-101")),
-      goals: SAMPLE_STATE.goals.map((g) => (g.id === "people-101" ? { ...g, progress: 1 - R.progress.perFull } : g)),
+    // people-101 (system) has a program on its last week; tonight's check-in finishes it and locks the goal in.
+    const program = {
+      id: "dinners", goalId: "people-101", weeks: [{ index: 1, sessions: ["a", "b", "c", "d"] }], currentWeek: 1,
+      done: [true, true, false, false], threshold: 3,
     };
-    const { events } = closeDay(start, { date: DATE, entries: [full("reach-out")] });
+    const start: GameState = { ...withMaint(maint(R.maintenance.maxWeeklyHabits + 1, "people-101")), programs: [program] };
+    const { state, events } = closeDay(start, { date: DATE, entries: [full("reach-out")] });
+    expect(state.goals.find((g) => g.id === "people-101")!.status).toBe("locked_in");
     expect(events).toContainEqual(expect.objectContaining({ type: "maintenance_cap", count: R.maintenance.maxWeeklyHabits + 1 }));
     // A normal night over the cap does not repeat it.
     expect(closeDay(withMaint(maint(R.maintenance.maxWeeklyHabits + 1)), { date: DATE, entries: [full("run")] }).events.some((e) => e.type === "maintenance_cap")).toBe(false);
