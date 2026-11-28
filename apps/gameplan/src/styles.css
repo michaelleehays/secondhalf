@@ -326,17 +326,19 @@ input,select,textarea{font-size:16px!important}
 .pace p{margin:0}
 .pace b{color:var(--ink)}
 
-/* schedule */
-.sched{display:flex;flex-direction:column;gap:8px}
-.srow{display:grid;grid-template-columns:52px minmax(0,1fr);gap:8px;align-items:center}
-.smon{font-stretch:80%;font-weight:700;font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
-.swk{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
-.scell{height:34px;border-radius:6px;background:var(--s2);border:0;padding:4px;display:flex;flex-direction:column;gap:3px}
-.scell i{flex:1;border-radius:2px;display:block}
-.scell.now{outline:2px solid var(--ink);outline-offset:1px}
-.slegend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--ink2);padding-top:4px}
-.slegend i,.sitem i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px;flex:none}
-.sstarts{display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:10px}
-.sitem{display:flex;align-items:center;gap:2px;font-size:13.5px;padding:3px 0}
-.sitem span{flex:1;min-width:0}
-.sitem small{color:var(--mut);font-size:12px;white-space:nowrap;margin-left:8px}
+/* schedule timeline */
+.sched{display:flex;flex-direction:column;gap:10px}
+.slegend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--ink2)}
+.slegend i,.tl-top i{display:inline-block;width:10px;height:10px;border-radius:3px;flex:none}
+.slegend i{margin-right:6px;vertical-align:-1px}
+.tl-axis{position:relative;height:16px;margin-top:4px}
+.tl-axis span{position:absolute;top:0;transform:translateX(-50%);font-size:11px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+.tl-row{display:flex;flex-direction:column;gap:5px;padding:6px 0;border-top:1px solid var(--line)}
+.tl-top{display:flex;align-items:center;gap:8px;font-size:14px}
+.tl-top span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tl-top small{font-size:12px;color:var(--mut);white-space:nowrap;font-variant-numeric:tabular-nums}
+.tl-top small b{color:var(--ink);font-weight:600}
+.tl-track{position:relative;height:10px;border-radius:99px;background:var(--s2)}
+.tl-bar{position:absolute;top:0;bottom:0;border-radius:99px}
+.tl-m{position:absolute;top:-2px;bottom:-2px;width:1px;background:var(--line2)}
+.tl-now{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--ink);border-radius:1px;z-index:1}

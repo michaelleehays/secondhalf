@@ -10,10 +10,10 @@ import * as lock from "./lock";
 
 const KEY = "gameplan:v1";
 const KINDS: Record<Kind, string> = { daily: "Daily habit", weekly: "Weekly rhythm", dont: "Don't", project: "Project block", auto: "Automate once" };
-const STATUSES: Record<Status, string> = { building: "In focus", queued: "Up next", maintaining: "Locked in", watching: "Tracked from day one", parked: "Parked (add later)", automated: "Automate once" };
+const STATUSES: Record<Status, string> = { building: "In focus", queued: "Up next", maintaining: "Routine (formed)", watching: "Tracked from day one", parked: "Parked (add later)", automated: "Automate once" };
 const STACKS: Record<Stack, string> = { morning: "Morning", day: "Daytime", evening: "Evening", shutdown: "Shutdown" };
 const MTYPES: Record<Metric["type"], string> = { scale: "Slider 1–10", yesno: "Yes / no", number: "Number" };
-const STLABEL = { locked: "Locked in", track: "On track", risk: "At risk", lost: "Lost ground", new: "Day 1" } as const;
+const STLABEL = { locked: "Formed", track: "On track", risk: "At risk", lost: "Lost ground", new: "Day 1" } as const;
 const I = {
   l: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5l-5 5 5 5"/></svg>',
   r: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 5l5 5-5 5"/></svg>',
@@ -156,7 +156,7 @@ function paceText() {
   }
   const days = diff(TODAY, finish);
   const status = behind.length ? `Behind on ${behind.join(" and ")}. Get back to ${s.pauseMin} of ${s.pauseWindow} days.` : "You're on pace.";
-  const end = stuck ? "Stay on course and the dates will show here." : finish === TODAY ? "Everything in this block is ready to lock in today." : `Stay on course and the whole block locks in <b>${pd(finish).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</b>, ${days} ${days === 1 ? "day" : "days"} from now.`;
+  const end = stuck ? "Stay on course and the dates will show here." : finish === TODAY ? "Every habit in this block is formed. Move them to your routine to start the next ones." : `Stay on course and this focus ends <b>${pd(finish).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</b>, ${days} ${days === 1 ? "day" : "days"} from now, when every habit in it is formed (done ${s.dailyTarget} of the last ${s.dailyWindow} days).`;
   return `<div class="pace"><p><b>${esc(focusTitle(S))}:</b> ${status} Last 7 days: ${parts.join(", ")}.</p><p>${end}</p></div>`;
 }
 
@@ -191,7 +191,7 @@ function notices() {
   let o = "";
   for (const h of b) {
     const x = st(h);
-    if (x.ready) o += `<div class="notice good"><p><b>${esc(h.name)}</b> hit ${x.done} of ${x.days} ${x.kind === "w" ? "weeks" : "days"}. Locked in. Graduate it for +${S.pts.grad}.</p><button class="btn sm" data-act="graduate" data-id="${h.id}">Graduate</button></div>`;
+    if (x.ready) o += `<div class="notice good"><p><b>${esc(h.name)}</b> hit ${x.done} of ${x.days} ${x.kind === "w" ? "weeks" : "days"}. That habit is formed. Move it to your routine (+${S.pts.grad}) and the next one starts.</p><button class="btn sm" data-act="graduate" data-id="${h.id}">Move to routine</button></div>`;
   }
   const open = b.length < s.maxActive && q.length > 0;
   if (P.paused) {
@@ -228,7 +228,7 @@ function focusCard() {
     const v = val(S, h, TODAY), x = st(h);
     const need = x.kind === "w" ? S.settings.weeklyTarget : S.settings.dailyTarget;
     const prog = x.kind === "w" ? `${x.done}/${need} weeks` : `${x.done}/${need} days`;
-    return `<div><div class="fitem"><span class="ck ${v ?? ""}">${v === "y" ? tick : ""}</span><b>${esc(h.name)}</b><small>${prog} to lock in</small></div><div class="fbar"><i style="width:${Math.min(100, (x.done / need) * 100)}%"></i></div></div>`;
+    return `<div><div class="fitem"><span class="ck ${v ?? ""}">${v === "y" ? tick : ""}</span><b>${esc(h.name)}</b><small>${prog} to form</small></div><div class="fbar"><i style="width:${Math.min(100, (x.done / need) * 100)}%"></i></div></div>`;
   }).join("");
   return `<section class="focus" aria-label="Current focus"><div class="cap">Focus right now${day ? ` · day ${day}` : ""}</div>
     <button class="ftitle" data-act="focusedit" aria-label="Rename your focus">${esc(focusTitle(S))}${pen}</button>
@@ -312,8 +312,8 @@ function vPlan() {
     ${by("watching").length ? `<ul class="card list">${by("watching").map((h) => two(h, `<button class="btn sm ghost" data-act="park" data-id="${h.id}">Park</button>`)).join("")}</ul>` : '<div class="card pad muted">None.</div>'}</section>
   <section><div class="sh"><h2>Parked</h2><span class="t">Add in later</span></div>
     ${by("parked").length ? `<ul class="card list">${by("parked").map((h) => `<li class="li two"><div><button class="hn" data-act="edit" data-id="${h.id}">${esc(h.name)}</button><div class="sub">${esc(h.area)} · ${KINDS[h.kind]}</div></div><div class="pbtns"><button class="btn sm ghost" data-act="unpark" data-id="${h.id}" data-v="watching">Track now</button><button class="btn sm ghost" data-act="unpark" data-id="${h.id}" data-v="queued">Add to queue</button></div></li>`).join("")}</ul>` : '<div class="card pad muted">Nothing parked. Park any item from its edit screen.</div>'}</section>
-  <section><div class="sh"><h2>Locked in</h2><span class="t">Maintenance · +${S.pts.kept}/day</span></div>
-    ${by("maintaining").length ? `<ul class="card list">${by("maintaining").map((h) => two(h)).join("")}</ul>` : '<div class="card pad muted">Your first graduate lands here and stays on the check-in.</div>'}</section>
+  <section><div class="sh"><h2>Routine</h2><span class="t">Formed habits you keep up · +${S.pts.kept}/day</span></div>
+    ${by("maintaining").length ? `<ul class="card list">${by("maintaining").map((h) => two(h)).join("")}</ul>` : '<div class="card pad muted">Habits land here once they are formed, and stay on the check-in.</div>'}</section>
   <section><div class="sh"><h2>Automate once</h2><span class="t">Set up, then forget</span></div>
     <ul class="card list">${by("automated").map((h) => `<li class="li two"><div><button class="hn" data-act="edit" data-id="${h.id}">${esc(h.name)}</button><div class="sub">${esc(h.area)}</div></div><button class="b y" data-act="setup" data-id="${h.id}" aria-pressed="${h.setup}">${h.setup ? "Set up" : "Not yet"}</button></li>`).join("")}</ul></section>`;
 }
@@ -323,31 +323,30 @@ const AREA_COLORS: Record<string, string> = {
   Fitness: "#FB923C", "Family & Friends": "#60A5FA", Work: "#94A3B8", "Don't": "#F87171",
 };
 const areaColor = (a: string) => AREA_COLORS[a] ?? "#C5CCD6";
-/** Weeks as cells, one row per month. Each cell has a stripe for every habit in focus that week. */
+/** A timeline: one row per habit, a bar from when its focus starts to when it ends (the habit is formed). */
 function scheduleView() {
   const sc = schedule(S, TODAY, S.settings.maxActive);
-  const rows: { key: string; label: string; weeks: string[] }[] = [];
-  for (let ws = wk(TODAY); ws <= wk(sc.last); ws = add(ws, 7)) {
-    const d = pd(ws), key = `${d.getFullYear()}-${d.getMonth()}`;
-    if (rows[rows.length - 1]?.key !== key) {
-      const yr = !rows.length || d.getMonth() === 0 ? ` '${String(d.getFullYear()).slice(2)}` : "";
-      rows.push({ key, label: d.toLocaleDateString(undefined, { month: "short" }) + yr, weeks: [] });
-    }
-    rows[rows.length - 1]!.weeks.push(ws);
-  }
-  const active = (ws: string) => sc.items.filter((x) => x.start <= add(ws, 6) && x.end > ws);
-  const grid = rows.map((r) => `<div class="srow"><span class="smon">${r.label}</span><div class="swk">${r.weeks.map((ws) => {
-    const a = active(ws);
-    return `<button class="scell${ws === wk(TODAY) ? " now" : ""}" data-act="weekinfo" data-v="${ws}" aria-label="Week of ${fmt(ws)}: ${esc(a.map((x) => x.h.name).join(", ") || "nothing")}">${a.map((x) => `<i style="background:${areaColor(x.h.area)}"></i>`).join("")}</button>`;
-  }).join("")}</div></div>`).join("");
+  const t0 = sc.items.reduce((m, x) => (x.start < m ? x.start : m), TODAY);
+  const t1 = add(sc.last, 3), span = Math.max(1, diff(t0, t1));
+  const pos = (k: string) => Math.max(0, Math.min(100, (diff(t0, k) / span) * 100));
+  const months: { k: string; label: string }[] = [];
+  for (let d = pd(t0), m = new Date(d.getFullYear(), d.getMonth() + 1, 1); dk(m) < t1; m = new Date(m.getFullYear(), m.getMonth() + 1, 1))
+    months.push({ k: dk(m), label: m.toLocaleDateString(undefined, { month: "short" }) + (m.getMonth() === 0 ? ` '${String(m.getFullYear()).slice(2)}` : "") });
+  const grid = months.map((m) => `<span class="tl-m" style="left:${pos(m.k)}%"></span>`).join("") + `<span class="tl-now" style="left:${pos(TODAY)}%"></span>`;
+  const axis = `<div class="tl-axis">${months.map((m) => `<span style="left:${pos(m.k)}%">${m.label}</span>`).join("")}</div>`;
+  const short = (k: string) => pd(k).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const row = (x: (typeof sc.items)[number]) => `<div class="tl-row">
+      <div class="tl-top"><i style="background:${areaColor(x.h.area)}"></i><span>${esc(x.h.name)}</span><small>${short(x.start)} – <b>${short(x.end)}</b></small></div>
+      <div class="tl-track">${grid}<span class="tl-bar" style="left:${pos(x.start)}%;width:${Math.max(1.5, pos(x.end) - pos(x.start))}%;background:${areaColor(x.h.area)}"></span></div></div>`;
+  const now = sc.items.filter((x) => x.current), next = sc.items.filter((x) => !x.current);
   const areas = [...new Set(sc.items.map((x) => x.h.area))];
-  const starts: Record<string, typeof sc.items> = {};
-  for (const x of sc.items) { const m = fmtM(x.start); (starts[m] ??= []).push(x); }
   return `<div class="card pad sched">
-    <p class="lede" style="padding:0">If every habit locks in on schedule. Each square is a week; each stripe is a habit in focus that week. Tap a week to see which.</p>
-    ${grid}
+    <p class="lede" style="padding:0">Each bar is one habit's focus: it starts, and it ends once the habit is formed (done ${S.settings.dailyTarget} of the last ${S.settings.dailyWindow} days). These dates assume you stay on course, so they move as you go. The white line is today.</p>
     <div class="slegend">${areas.map((a) => `<span><i style="background:${areaColor(a)}"></i>${esc(a)}</span>`).join("")}</div>
-    <div class="sstarts">${Object.entries(starts).map(([m, xs]) => `<div><div class="cap">${m}</div>${xs.map((x) => `<div class="sitem"><i style="background:${areaColor(x.h.area)}"></i><span>${esc(x.h.name)}</span><small>${x.current ? `locks in ~${fmt(x.end)}` : `starts ~${fmt(x.start)}`}</small></div>`).join("")}</div>`).join("")}</div>
+    ${axis}
+    ${now.length ? `<div class="cap" style="margin-top:4px">In focus now</div>${now.map(row).join("")}` : ""}
+    ${next.length ? `<div class="cap" style="margin-top:8px">Up next</div>${next.map(row).join("")}` : ""}
+    <p class="lede" style="padding:0">Everything in the queue is formed by <b style="color:var(--ink)">${pd(sc.last).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}</b> at ${S.settings.maxActive} at a time.</p>
   </div>`;
 }
 
@@ -462,7 +461,7 @@ function vSettings() {
     <div class="backup"><button class="btn sm" data-act="export">Export backup</button><button class="btn sm ghost" data-act="import">Import backup</button><button class="btn sm ghost" data-act="copycode">Copy backup code</button><button class="btn sm ghost" data-act="pastecode">Paste a code</button><input type="file" accept="application/json,.json" id="importfile" class="filein" tabindex="-1" aria-hidden="true"></div></div></section>
   <section><div class="sh"><h2>Points</h2><span class="t">Misses never cost points</span></div><div class="card">
     ${f("focus", "In-focus habit done", "", "number", 'min="0"', "pt")}${f("kept", "Locked-in habit kept", "", "number", 'min="0"', "pt")}${f("tracked", "Tracked don’t kept clean", "Tracked from day one", "number", 'min="0"', "pt")}
-    ${f("base", "Not-in-focus habit done", "With Everything on", "number", 'min="0"', "pt")}${f("checkin", "Check-in locked in", "", "number", 'min="0"', "pt")}${f("chain", "Chain bonus", "Per habit, 7+ days running", "number", 'min="0"', "pt")}${f("grad", "Graduation", "A habit locks in", "number", 'min="0"', "pt")}
+    ${f("base", "Not-in-focus habit done", "With Everything on", "number", 'min="0"', "pt")}${f("checkin", "Check-in saved", "", "number", 'min="0"', "pt")}${f("chain", "Chain bonus", "Per habit, 7+ days running", "number", 'min="0"', "pt")}${f("grad", "Graduation", "A habit locks in", "number", 'min="0"', "pt")}
   </div></section>
   <section><div class="sh"><h2>Competing with yourself</h2></div><div class="card explain">
     <ul><li><b>Weekly score</b> resets Monday. The headline compares this week with last week at the same day.</li>
@@ -470,9 +469,9 @@ function vSettings() {
     <li><b>Levels</b> every 1,000 lifetime points. They only go up.</li></ul></div></section>
   <section><div class="sh"><h2>Queue rules</h2></div><div class="card">
     ${f("maxActive", "Habits in focus at once", "", "number", 'min="1" max="6"')}
-    ${f("dailyTarget", "Locked in: days done", "Daily habits and don’ts", "number", 'min="1"')}
+    ${f("dailyTarget", "Formed: days done", "Daily habits and don’ts", "number", 'min="1"')}
     ${f("dailyWindow", "…out of the last", "days", "number", 'min="7" max="60"')}
-    ${f("weeklyTarget", "Locked in: weeks on target", "Weekly rhythms and projects", "number", 'min="1"')}
+    ${f("weeklyTarget", "Formed: weeks on target", "Weekly rhythms and projects", "number", 'min="1"')}
     ${f("weeklyWindow", "…out of the last", "weeks", "number", 'min="2" max="12"')}
     ${f("pauseMin", "Pause the queue below", "days done", "number", 'min="1"')}
     ${f("pauseWindow", "…out of the last", "days", "number", 'min="3" max="14"')}
@@ -483,7 +482,7 @@ function vSettings() {
     <h3>Daily habits</h3><ul><li>Each day done adds 1. Miss one day and the chain holds as a grace day (orange), one per ${s.gracePer} days.</li><li>Two misses in a row ends it. One miss marks it at risk. Not logging counts as a miss.</li></ul>
     <h3>Don'ts</h3><ul><li>Clean days since the last setback. Any drink is a setback for No alcohol and resets the count. No grace days.</li><li>Consistency still uses ${s.dailyTarget} of ${s.dailyWindow}, so one setback doesn't send you to the back of the line.</li></ul>
     <h3>Weekly rhythms</h3><ul><li>A week counts when you hit its target. The chain is weeks in a row on target.</li></ul>
-    <h3>Moving the queue</h3><ul><li><b>Locked in</b> at ${s.dailyTarget} of ${s.dailyWindow} days or ${s.weeklyTarget} of ${s.weeklyWindow} weeks. Graduate it and the next item starts.</li><li><b>Lost ground</b> below ${s.pauseMin} of ${s.pauseWindow} days or two missed weeks pauses the queue until it recovers.</li></ul>
+    <h3>Moving the queue</h3><ul><li>A habit is <b>formed</b> at ${s.dailyTarget} of ${s.dailyWindow} days or ${s.weeklyTarget} of ${s.weeklyWindow} weeks. Move it to your routine and the next item starts.</li><li><b>Lost ground</b> below ${s.pauseMin} of ${s.pauseWindow} days or two missed weeks pauses the queue until it recovers.</li></ul>
   </div></section>
   <section><div class="sh"><h2>Life clock and schedule</h2><span class="t num">${L ? n(L.left) + " weeks left" : "Add your birth date"}</span></div><div class="card">
     ${f("birth", "Birth date", "", "date")}${f("lifeExp", "Count toward age", "US male average is 75.8", "number", 'step="0.1" min="40" max="110"')}${f("lightsOut", "Lights out", "", "time")}${f("wake", "Wake up", "", "time")}
@@ -493,7 +492,7 @@ function vSettings() {
     <div class="prompt"><b>${tfmt(tmin(s.wake))}</b><span>Morning stack.</span></div>
     <div class="prompt"><b>${tfmt(lo - 45)}</b><span>Check-in. 60 seconds, before the phone goes down.</span></div>
     <div class="prompt"><b>${tfmt(lo - 30)}</b><span>Shutdown. Phone on the charger outside the bedroom.</span></div>
-    <div class="prompt"><b>SUN 4 PM</b><span>Weekly review: your score vs. last week, graduate, re-order the queue.</span></div></div></section>
+    <div class="prompt"><b>SUN 4 PM</b><span>Weekly review: your score vs. last week, move formed habits to your routine, re-order the queue.</span></div></div></section>
   <section><div class="sh"><h2>Start over</h2></div><div class="card pad" style="display:flex;flex-direction:column;gap:12px">
     ${S.sample ? `<p style="margin:0;font-size:13.5px;color:var(--ink2)">You're looking at example data.</p>` : ""}
     ${ui.confirmReset ? `<div class="notice warn"><p>${ui.confirmReset === "fresh" ? "Clear all history and points, and start Phase 1 today? Your habit list, order and questions stay." : "Replace everything, including your own history, with example data?"}</p><div style="display:flex;gap:6px"><button class="btn sm danger" data-act="doreset">Yes, reset</button><button class="btn sm ghost" data-act="cancelreset">Cancel</button></div></div>`
@@ -780,7 +779,7 @@ function onClick(e: MouseEvent) {
       const h = HB(id)!;
       h.status = "maintaining"; h.grad = TODAY;
       const r = launchNext(S, TODAY, false); S = r.state;
-      toast(r.launched ? `${h.name} locked in. +${S.pts.grad} pts. ${r.launched.name} starts today.` : `${h.name} locked in. +${S.pts.grad} pts.`);
+      toast(r.launched ? `${h.name} is formed and in your routine. +${S.pts.grad} pts. ${r.launched.name} starts today.` : `${h.name} is formed and in your routine. +${S.pts.grad} pts.`);
       break;
     }
     case "launch": { const r = launchNext(S, TODAY, !!t.dataset.force); S = r.state; if (r.launched) toast(`${r.launched.name} starts today.`); break; }
@@ -904,7 +903,6 @@ function onClick(e: MouseEvent) {
     }
     case "hidelockhint": try { localStorage.setItem("gameplan:hide-lockhint", "1"); } catch { /* ignore */ } break;
     case "sched": ui.sched = !ui.sched; break;
-    case "weekinfo": { const ws = v, xs = schedule(S, TODAY, S.settings.maxActive).items.filter((x) => x.start <= add(ws, 6) && x.end > ws); toast(`Week of ${fmt(ws)}: ${xs.map((x) => x.h.name).join(", ") || "nothing scheduled"}`); return; }
     case "focusedit": ui.sheet = { type: "focus" }; break;
     case "focusauto": S.settings.focusTitle = ""; ui.sheet = null; toast("Using the suggested name."); break;
     case "focussave": S.settings.focusTitle = field("focustitle").trim(); ui.sheet = null; toast("Focus renamed."); break;
