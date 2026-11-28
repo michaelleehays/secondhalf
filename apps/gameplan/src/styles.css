@@ -278,8 +278,8 @@ img{max-width:100%}
 .install b{color:var(--ink)}
 
 /* no zoom: iPhone zooms into any field under 16px, and pinch-zoom is turned off for the installed app */
-html{touch-action:pan-x pan-y;overflow-x:hidden}
-body{overflow-x:hidden;width:100%}
+html{touch-action:pan-x pan-y;overflow-x:clip}
+body{overflow-x:clip;width:100%}
 input,select,textarea{font-size:16px!important}
 /* instant press feedback */
 .b,.btn,.ib,.tabs button,.hn{transition:transform .08s ease,opacity .08s ease}
@@ -316,3 +316,6 @@ input,select,textarea{font-size:16px!important}
 .fitem small{color:var(--mut);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .fbar{height:4px;border-radius:99px;background:var(--s3);overflow:hidden;margin-top:4px}
 .fbar i{display:block;height:100%;background:var(--acc)}
+
+.lockscreen .btn.face{font-size:15px;padding:14px 22px;display:flex;align-items:center;gap:10px}
+.lockscreen .btn.face svg{width:22px;height:22px}

@@ -38,7 +38,7 @@ let TODAY = dk(new Date());
 let S: State = load();
 let sum = scoreSummary(S, TODAY);
 
-interface Sheet { type: "habit" | "metrics" | "metric" | "code" | "pin" | "focus"; id?: string | null }
+interface Sheet { type: "habit" | "metrics" | "metric" | "code" | "pin" | "focus" | "faceoffer"; id?: string | null }
 const auth = { email: "", sent: false, busy: false, mode: "password" as "password" | "setup" | "code" };
 const pinUi = { entry: "", first: "", step: "new" as "new" | "confirm", error: "", forgot: false };
 let remindersEnabled = false;
@@ -186,6 +186,12 @@ function installHint() {
   return `<div class="install"><b>Put it on your home screen.</b> In Safari, tap Share, then <b>Add to Home Screen</b>. It opens full screen and works offline. <button class="link" data-act="hideinstall">Hide</button></div>`;
 }
 
+function lockHint() {
+  if (lock.lockCfg()) return "";
+  try { if (localStorage.getItem("gameplan:hide-lockhint") === "1") return ""; } catch { /* ignore */ }
+  return `<div class="notice info"><p><b>Lock Game Plan.</b> Ask for Face ID or a passcode every time it opens, so your plan stays private.</p><div class="backup"><button class="btn sm" data-act="pinset">Set it up</button><button class="btn sm ghost" data-act="hidelockhint">Not now</button></div></div>`;
+}
+
 function focusCard() {
   const b = by("building");
   const start = b.map((h) => h.start!).sort()[0];
@@ -250,7 +256,7 @@ function vToday() {
     <div class="ci-foot"><button class="link" data-act="metrics">Edit questions</button><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><button class="btn" data-act="lock">Save check-in</button><span class="muted" style="font-size:11.5px">Earns +${S.pts.checkin} pts</span></div></div></div>`;
   const ago = diff(k, TODAY), ds = sum.day(k);
   if (!S.habits.length) return `${installHint()}${welcome()}`;
-  return `${installHint()}<div id="focuswrap">${focusCard()}</div><div id="boardwrap">${board()}</div>${clock()}<div id="noticewrap" style="display:contents">${notices()}</div>
+  return `${installHint()}${lockHint()}<div id="focuswrap">${focusCard()}</div><div id="boardwrap">${board()}</div>${clock()}<div id="noticewrap" style="display:contents">${notices()}</div>
   <div class="dayrow"><div><div class="sub">${ago === 0 ? "Today" : ago === 1 ? "Yesterday" : ago + " days ago"}</div><h2>${pd(k).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}</h2></div>
     <div class="arrows"><button class="ib" data-act="prev" aria-label="Previous day" ${ago >= 6 ? "disabled" : ""}>${I.l}</button><button class="ib" data-act="next" aria-label="Next day" ${ago === 0 ? "disabled" : ""}>${I.r}</button></div></div>
   <div class="tabs"><div class="tl"><button data-act="logall" data-v="0" aria-pressed="${!s.logAll}">In focus</button><button data-act="logall" data-v="1" aria-pressed="${!!s.logAll}">Everything</button></div>
@@ -451,6 +457,10 @@ function sheet() {
     <div class="field"><label for="e-status">Where it lives</label><select id="e-status">${opt(STATUSES, h.status)}</select></div>
     <div class="actions">${ui.sheet.id ? (ui.confirmDel ? `<button class="btn danger" data-act="del">Delete for good</button>` : `<button class="btn ghost" data-act="askdel">Delete</button>`) : "<span></span>"}
       <div style="display:flex;gap:8px"><button class="btn ghost" data-act="close">Cancel</button><button class="btn" data-act="savehabit">Save</button></div></div>`;
+  } else if (ui.sheet.type === "faceoffer") {
+    body = `<h2 id="sh-t">Use Face ID too?</h2>
+    <p style="margin:0;font-size:13.5px;color:var(--ink2)">Unlock with your face instead of typing the passcode. The passcode still works as a backup.</p>
+    <div class="actions"><button class="btn ghost" data-act="close">Not now</button><button class="btn" data-act="faceon">Turn on Face ID</button></div>`;
   } else if (ui.sheet.type === "focus") {
     const sug = suggestFocusTitle(S);
     body = `<h2 id="sh-t">Name your focus</h2>
@@ -567,8 +577,8 @@ function lockScreen() {
   const c = lock.lockCfg()!;
   return `<div class="lockscreen"><div class="brand">Second Half <span>Game Plan</span></div>
     <p class="lockmsg">${pinUi.error ? `<span class="err">${esc(pinUi.error)}</span>` : "Enter your passcode"}</p>
+    ${c.credId ? `<button class="btn face" data-act="faceunlock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M9 9v1M15 9v1M12 9v4h-1M9 16c1.7 1.3 4.3 1.3 6 0"/></svg>Unlock with Face ID</button><p class="lockmsg" style="font-size:13px">or enter your passcode</p>` : ""}
     ${dots(pinUi.entry.length, c.len)}${keypad("pinkey")}
-    ${c.credId ? `<button class="btn" data-act="faceunlock">Unlock with Face ID</button>` : ""}
     ${pinUi.forgot ? `<div class="notice warn"><p>Forgot it? You can erase Game Plan on this phone and start over.${cloud.syncInfo().email ? " Sign in again afterwards and your synced plan comes back." : " Without sync, your history on this phone is lost."}</p><div class="backup"><button class="btn sm danger" data-act="erase">Erase and start over</button><button class="btn sm ghost" data-act="forgotno">Cancel</button></div></div>`
       : `<button class="link" data-act="forgot">Forgot passcode?</button>`}</div>`;
 }
@@ -576,14 +586,21 @@ function lockScreen() {
 /* ---------- render ---------- */
 const VIEWS: Record<string, () => string> = { today: vToday, plan: vPlan, insights: vInsights, settings: vSettings };
 const tab = () => { const t = location.hash.slice(1); return VIEWS[t] ? t : "today"; };
+let faceTried = false;
 export function render() {
   if (lock.isLocked()) {
     document.documentElement.classList.add("is-locked");
     $("view").innerHTML = lockScreen();
     $("topr").innerHTML = "";
     $("sheet-root").innerHTML = "";
+    // Try Face ID once each time the app locks. If iPhone wants a tap first, the button is there.
+    if (!faceTried && lock.lockCfg()?.credId && document.visibilityState === "visible") {
+      faceTried = true;
+      void lock.unlockWithFaceId().then((ok) => { if (ok) { lock.unlock(); render(); void cloud.pull(); } });
+    }
     return;
   }
+  faceTried = false;
   document.documentElement.classList.remove("is-locked");
   const now = dk(new Date());
   if (now !== TODAY) { if (ui.view === TODAY) ui.view = now; TODAY = now; }
@@ -818,14 +835,19 @@ function onClick(e: MouseEvent) {
       if (pinUi.entry.length < 4) return;
       if (pinUi.step === "new") { pinUi.first = pinUi.entry; pinUi.entry = ""; pinUi.step = "confirm"; sheet(); return; }
       if (pinUi.entry !== pinUi.first) { pinUi.entry = ""; pinUi.first = ""; pinUi.step = "new"; pinUi.error = "Those didn't match. Start again."; sheet(); return; }
-      void lock.setPin(pinUi.entry).then(() => { ui.sheet = null; pinUi.entry = ""; pinUi.first = ""; render(); toast("Passcode set. Game Plan will ask for it when it opens."); });
+      void lock.setPin(pinUi.entry).then(() => {
+        pinUi.entry = ""; pinUi.first = "";
+        ui.sheet = lock.faceIdSupported() ? { type: "faceoffer" } : null;
+        render(); toast("Passcode set. Game Plan will ask for it when it opens.");
+      });
       return;
     }
+    case "hidelockhint": try { localStorage.setItem("gameplan:hide-lockhint", "1"); } catch { /* ignore */ } break;
     case "focusedit": ui.sheet = { type: "focus" }; break;
     case "focusauto": S.settings.focusTitle = ""; ui.sheet = null; toast("Using the suggested name."); break;
     case "focussave": S.settings.focusTitle = field("focustitle").trim(); ui.sheet = null; toast("Focus renamed."); break;
     case "lockoff": lock.removeLock(); toast("App lock is off."); break;
-    case "faceon": void lock.enableFaceId().then(() => { render(); toast("Face ID is on."); }).catch((err: Error) => toast(err.message || "Face ID wasn't set up.")); return;
+    case "faceon": void lock.enableFaceId().then(() => { ui.sheet = null; render(); toast("Face ID is on."); }).catch((err: Error) => toast(err.message || "Face ID wasn't set up.")); return;
     case "faceoff": lock.disableFaceId(); break;
     case "sendcode": {
       const email = (($("authemail") as HTMLInputElement).value || "").trim();
