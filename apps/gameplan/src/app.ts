@@ -178,6 +178,8 @@ function installHint() {
   const nav = navigator as Navigator & { standalone?: boolean };
   const standalone = nav.standalone || window.matchMedia("(display-mode: standalone)").matches;
   if (standalone) return "";
+  const phone = /iPhone|iPod|Android/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent) && window.innerWidth < 900);
+  if (!phone) return "";
   let dismissed = false;
   try { dismissed = localStorage.getItem("gameplan:hide-install") === "1"; } catch { /* ignore */ }
   if (dismissed) return "";
@@ -207,7 +209,10 @@ function welcome() {
     <h2 style="font-stretch:75%;font-weight:800;font-size:28px;text-transform:uppercase;line-height:1">Set up your game plan</h2>
     <p style="margin:0;color:var(--ink2);font-size:14px">If you have a plan code or file, load it. It sets your habits, queue order, check-in questions and birth date. You can also look around with example data, or build your plan from scratch on the Plan tab.</p>
     <div class="backup"><button class="btn" data-act="pastecode">Paste my plan code</button><button class="btn ghost" data-act="import">Load a plan file</button><button class="btn ghost" data-act="reset" data-v="sample-now">Try example data</button><a class="btn ghost" href="#plan" style="text-decoration:none">Start from scratch</a></div>
-    <input type="file" accept="application/json,.json" id="importfile" class="filein" tabindex="-1" aria-hidden="true"></section>`;
+    <input type="file" accept="application/json,.json" id="importfile" class="filein" tabindex="-1" aria-hidden="true"></section>
+    ${cloud.cloudAvailable ? `<section class="card pad" style="display:flex;flex-direction:column;gap:12px"><div class="cap">Already using Game Plan on your phone?</div>
+      <p style="margin:0;color:var(--ink2);font-size:14px">Sign in with the same email to bring your plan here. Turn on sync on your phone first (Settings → Sync) so there's something to bring over.</p>
+      ${cloud.syncInfo().email ? `<p style="margin:0;font-size:13.5px">Signed in as <b>${esc(cloud.syncInfo().email)}</b>. Nothing synced yet.</p><div class="backup"><button class="btn sm" data-act="syncnow">Sync now</button><button class="btn sm ghost" data-act="signout">Sign out</button></div>` : signInForm()}</section>` : ""}`;
 }
 
 /* ---------- views ---------- */
@@ -501,12 +506,15 @@ function accountSection() {
   }
   return `<section><div class="sh"><h2>Sync</h2><span class="t">Off</span></div><div class="card pad" style="display:flex;flex-direction:column;gap:12px">
     <p style="margin:0;font-size:13.5px;color:var(--ink2)">Sign in to back up your plan to your account and to turn on reminders. You'll get a 6-digit code by email. The email has only the code, nothing from your plan.</p>
-    ${auth.sent
+    ${signInForm()}
+  </div></section>`;
+}
+function signInForm() {
+  return `${auth.sent
       ? `<div class="field"><label for="authcode">Code sent to ${esc(auth.email)}</label><input id="authcode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
          <div class="backup"><button class="btn sm" data-act="verifycode" ${auth.busy ? "disabled" : ""}>Sign in</button><button class="btn sm ghost" data-act="authback">Use a different email</button></div>`
       : `<div class="field"><label for="authemail">Email</label><input id="authemail" type="email" autocomplete="email" value="${esc(auth.email)}" placeholder="you@example.com"></div>
-         <div class="backup"><button class="btn sm" data-act="sendcode" ${auth.busy ? "disabled" : ""}>Email me a code</button></div>`}
-  </div></section>`;
+         <div class="backup"><button class="btn sm" data-act="sendcode" ${auth.busy ? "disabled" : ""}>Email me a code</button></div>`}`;
 }
 function remindersSection() {
   if (!cloud.cloudAvailable) return "";
@@ -821,7 +829,7 @@ function onClick(e: MouseEvent) {
       const code = (($("authcode") as HTMLInputElement).value || "").replace(/\D/g, "");
       if (code.length < 6) { toast("Enter the code from the email."); return; }
       auth.busy = true; render();
-      void cloud.verifyCode(auth.email, code).then(() => { auth.sent = false; toast("Signed in. Sync is on."); })
+      void cloud.verifyCode(auth.email, code).then(() => { auth.sent = false; toast(S.habits.length ? "Signed in. Your plan is synced." : "Signed in, but nothing is synced yet. Turn on sync on your phone, then tap Sync now here."); })
         .catch(() => toast("That code didn't work. Check it, or send a new one."))
         .finally(() => { auth.busy = false; render(); });
       return;
