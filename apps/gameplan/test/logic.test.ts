@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEMO_PLAN, add, buildPlan, dailyStats, dayScore, discover, fisher, freshState, launchNext, life, normalize, pauseInfo, project,
+  DEMO_PLAN, add, buildPlan, mergeStates, reminderList, dailyStats, dayScore, discover, fisher, freshState, launchNext, life, normalize, pauseInfo, project,
   sampleState, scoreSummary, testPair, weeklyStats, welch, wk, type State,
 } from "../src/logic";
 
@@ -182,5 +182,35 @@ describe("saved data", () => {
     delete s.pts;
     const n = normalize(JSON.parse(JSON.stringify(s)), TODAY)!;
     expect(n.pts.focus).toBe(10);
+  });
+});
+
+describe("sync merge", () => {
+  it("keeps logs and check-ins from both devices, local wins a clash", () => {
+    const a = plan(TODAY), b = plan(TODAY);
+    a.logs[TODAY] = { lights: "y" };
+    b.logs[TODAY] = { lights: "n", alcohol: "y" };
+    b.logs[add(TODAY, -1)] = { lights: "y" };
+    a.checkins[TODAY] = { m: { mood: 7 }, notes: {} };
+    b.checkins[TODAY] = { m: { energy: 4 }, notes: {}, locked: true };
+    const m = mergeStates(a, b);
+    expect(m.logs[TODAY]).toEqual({ lights: "y", alcohol: "y" });
+    expect(m.logs[add(TODAY, -1)]).toEqual({ lights: "y" });
+    expect(m.checkins[TODAY]!.locked).toBe(true);
+  });
+  it("adds habits that only exist on the other device", () => {
+    const a = plan(TODAY), b = plan(TODAY);
+    b.habits.push({ ...b.habits[0]!, id: "new1", name: "New" });
+    expect(mergeStates(a, b).habits.some((h) => h.id === "new1")).toBe(true);
+  });
+});
+
+describe("reminders", () => {
+  it("derives times from lights out and wake, keeps text generic, skips ones turned off", () => {
+    const s = plan(TODAY).settings;
+    s.reminders.morning = false;
+    const r = reminderList(s);
+    expect(r.map((x) => [x.id, x.time])).toEqual([["shutdown", "21:00"], ["checkin", "21:15"], ["weekly", "16:00"]]);
+    expect(r.find((x) => x.id === "weekly")!.days).toEqual([0]);
   });
 });

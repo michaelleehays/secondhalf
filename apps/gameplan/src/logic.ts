@@ -46,6 +46,7 @@ export interface Settings {
   lightsOut: string;
   wake: string;
   logAll: boolean;
+  reminders: { morning: boolean; shutdown: boolean; checkin: boolean; weekly: boolean };
 }
 export interface Points {
   focus: number;
@@ -101,6 +102,7 @@ export const DEFAULT_PTS: Points = { focus: 10, kept: 5, tracked: 5, base: 2, ch
 export const DEFAULT_SETTINGS: Settings = {
   maxActive: 2, dailyWindow: 21, dailyTarget: 17, weeklyWindow: 4, weeklyTarget: 3, pauseWindow: 7, pauseMin: 5, gracePer: 7,
   birth: "", lifeExp: 75.8, lightsOut: "21:30", wake: "05:30", logAll: true,
+  reminders: { morning: true, shutdown: true, checkin: true, weekly: true },
 };
 export const METRICS: Metric[] = [
   { id: "mood", name: "Mood", type: "scale", lo: "Rough", hi: "Great", better: "high" },
@@ -239,7 +241,7 @@ export function normalize(raw: unknown, today: string): State | null {
   const base = freshState(today);
   return {
     version: 1,
-    settings: { ...base.settings, ...(s.settings ?? {}) },
+    settings: { ...base.settings, ...(s.settings ?? {}), reminders: { ...base.settings.reminders, ...(s.settings?.reminders ?? {}) } },
     pts: { ...base.pts, ...(s.pts ?? {}) },
     metrics: s.metrics,
     noteAreas: Array.isArray(s.noteAreas) ? s.noteAreas : base.noteAreas,
@@ -549,4 +551,42 @@ export function rateBetween(S: State, h: Habit, from: string | null, to: string 
     if (v) { l++; if (v === "y") d++; }
   }
   return { d, l, r: l ? d / l : null };
+}
+
+/* ---------------- sync ---------------- */
+/**
+ * Combine this device's state with the cloud copy when both changed. Nothing logged is lost:
+ * day logs and check-ins are unioned (this device wins a clash, a saved check-in beats an unsaved one),
+ * habits and questions only on the other side are added. Plan settings come from this device.
+ */
+export function mergeStates(local: State, remote: State): State {
+  const logs: State["logs"] = {};
+  for (const k of new Set([...Object.keys(remote.logs), ...Object.keys(local.logs)])) logs[k] = { ...(remote.logs[k] ?? {}), ...(local.logs[k] ?? {}) };
+  const checkins: State["checkins"] = { ...remote.checkins };
+  for (const [k, c] of Object.entries(local.checkins)) {
+    const r = remote.checkins[k];
+    checkins[k] = r && r.locked && !c.locked ? r : { m: { ...(r?.m ?? {}), ...c.m }, notes: { ...(r?.notes ?? {}), ...c.notes }, locked: c.locked || r?.locked };
+  }
+  const ids = new Set(local.habits.map((h) => h.id)), mids = new Set(local.metrics.map((m) => m.id));
+  return {
+    ...local,
+    habits: [...local.habits, ...remote.habits.filter((h) => !ids.has(h.id))],
+    metrics: [...local.metrics, ...remote.metrics.filter((m) => !mids.has(m.id))],
+    logs,
+    checkins,
+    sample: local.sample && remote.sample,
+  };
+}
+
+/** Reminder times from the plan. The text is generic on purpose: it shows on the lock screen. */
+export function reminderList(s: Settings) {
+  const t = (m: number) => { m = ((m % 1440) + 1440) % 1440; return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; };
+  const [lh, lm] = s.lightsOut.split(":").map(Number), lo = lh! * 60 + lm!;
+  const all = [
+    { id: "morning", time: s.wake, days: null, title: "Morning", body: "Start your morning stack." },
+    { id: "shutdown", time: t(lo - 30), days: null, title: "Shutdown", body: "Phone on the charger. Lights out soon." },
+    { id: "checkin", time: t(lo - 15), days: null, title: "Check-in", body: "60 seconds: log today and save your check-in." },
+    { id: "weekly", time: "16:00", days: [0], title: "Weekly review", body: "See how this week stacks up." },
+  ] as const;
+  return all.filter((r) => s.reminders[r.id]).map((r) => ({ ...r, days: r.days ? [...r.days] : null }));
 }

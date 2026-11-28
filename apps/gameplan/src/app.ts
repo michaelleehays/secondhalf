@@ -4,6 +4,9 @@ import {
   stats, testPair, val, weekCount, wk,
   type Checkin, type Habit, type Kind, type Metric, type Stack, type State, type Stats, type Status, type TestResult,
 } from "./logic";
+import { reminderList } from "./logic";
+import * as cloud from "./cloud";
+import * as lock from "./lock";
 
 const KEY = "gameplan:v1";
 const KINDS: Record<Kind, string> = { daily: "Daily habit", weekly: "Weekly rhythm", dont: "Don't", project: "Project block", auto: "Automate once" };
@@ -35,7 +38,10 @@ let TODAY = dk(new Date());
 let S: State = load();
 let sum = scoreSummary(S, TODAY);
 
-interface Sheet { type: "habit" | "metrics" | "metric" | "code"; id?: string | null }
+interface Sheet { type: "habit" | "metrics" | "metric" | "code" | "pin"; id?: string | null }
+const auth = { email: "", sent: false, busy: false };
+const pinUi = { entry: "", first: "", step: "new" as "new" | "confirm", error: "", forgot: false };
+let remindersEnabled = false;
 const ui: { view: string; grid: boolean; sheet: Sheet | null; confirmReset: string | null; confirmDel: boolean; trend: string } =
   { view: TODAY, grid: false, sheet: null, confirmReset: null, confirmDel: false, trend: "mood" };
 
@@ -46,7 +52,7 @@ function load(): State {
   } catch { /* storage blocked or corrupt: start fresh */ }
   return freshState(TODAY);
 }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { toast("Couldn't save on this device. Export a backup in Settings."); } }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { toast("Couldn't save on this device. Export a backup in Settings."); } cloud.markDirty(); }
 
 const HB = (id: string) => S.habits.find((h) => h.id === id);
 const MT = (id: string) => S.metrics.find((m) => m.id === id);
@@ -102,7 +108,7 @@ function row(h: Habit, k: string, base = false) {
   const pts = v === "y" ? `<span class="pts">+${x.pts} pts</span>` : `worth +${x.worth}`;
   const m = base || !s ? `${baselineTxt(h)} · ${pts}` : `${metaHtml(h, s)} · ${pts}${h.status === "maintaining" ? " · maintaining" : h.status === "watching" ? " · tracked" : ""}`;
   const ch = chainTxt(h, s);
-  return `<div class="h${base ? " base" : ""}"><div style="min-width:0"><button class="hn" data-act="edit" data-id="${h.id}">${esc(h.name)}</button>${ch ? `<span class="chain">${ch}</span>` : ""}
+  return `<div class="h${base ? " base" : ""}" id="r-${h.id}"><div style="min-width:0"><button class="hn" data-act="edit" data-id="${h.id}">${esc(h.name)}</button>${ch ? `<span class="chain">${ch}</span>` : ""}
     <div class="hm">${m}</div>${strip(h, s, base)}</div>
     <div class="btns"><button class="b y" data-act="log" data-id="${h.id}" data-v="y" aria-pressed="${v === "y"}">${a}</button>${b ? `<button class="b n" data-act="log" data-id="${h.id}" data-v="n" aria-pressed="${v === "n"}">${b}</button>` : ""}</div></div>`;
 }
@@ -190,19 +196,18 @@ function welcome() {
 /* ---------- views ---------- */
 function vToday() {
   const k = ui.view, s = S.settings, c = S.checkins[k] ?? { m: {}, notes: {} };
-  const times: Record<Stack, string> = { morning: tfmt(tmin(s.wake)), day: "", evening: "6:00 PM", shutdown: tfmt(tmin(s.lightsOut) - 30) };
+  const rank = (h: Habit) => (h.status === "building" ? 0 : h.status === "watching" ? 1 : 2);
+  const focus = focusSet().sort((a, b) => rank(a) - rank(b));
+  const doHabits = focus.filter((h) => h.kind !== "dont"), avoids = focus.filter((h) => h.kind === "dont");
   let groups = "";
-  for (const sk of Object.keys(STACKS) as Stack[]) {
-    const hs = focusSet().filter((h) => h.stack === sk).sort((a, b) => (a.status === "building" ? 0 : 1) - (b.status === "building" ? 0 : 1));
-    if (hs.length) groups += `<div class="gh"><h3>${STACKS[sk]}</h3><span>${times[sk]}</span></div>${hs.map((h) => row(h, k)).join("")}`;
-  }
+  if (doHabits.length) groups += `<div class="gh"><h3>Habits</h3><span>${doHabits.length}</span></div>${doHabits.map((h) => row(h, k)).join("")}`;
+  if (avoids.length) groups += `<div class="gh"><h3>Avoid</h3><span>${avoids.length}</span></div>${avoids.map((h) => row(h, k)).join("")}`;
   if (!groups) groups = `<div class="card pad muted">Nothing in focus yet. Start the first habit on the Plan tab.</div>`;
   let rest = "";
   if (s.logAll) {
-    for (const a of AREAS) {
-      const hs = by("queued").filter((h) => h.area === a);
-      if (hs.length) rest += `<div class="gh"><h3>${esc(a)}</h3><span>+${S.pts.base} each</span></div>${hs.map((h) => row(h, k, true)).join("")}`;
-    }
+    const q = by("queued"), qh = q.filter((h) => h.kind !== "dont"), qa = q.filter((h) => h.kind === "dont");
+    if (qh.length) rest += `<div class="gh"><h3>Habits</h3><span>+${S.pts.base} each</span></div>${qh.map((h) => row(h, k, true)).join("")}`;
+    if (qa.length) rest += `<div class="gh"><h3>Avoid</h3><span>+${S.pts.base} each</span></div>${qa.map((h) => row(h, k, true)).join("")}`;
     rest = `<section><div class="sh"><h2>Not in focus yet</h2><span class="t">Builds your baseline</span></div><p class="lede">Log these if you did them. They don't move the queue. Insights uses them to show how focus changes each habit.</p>${rest}</section>`;
   }
   const mv = c.m ?? {};
@@ -217,17 +222,17 @@ function vToday() {
   };
   const answered = S.metrics.filter((m) => mv[m.id] != null).length;
   const ci = c.locked
-    ? `<div class="card done"><div class="dv">${S.metrics.filter((m) => m.type === "scale").slice(0, 3).map((m) => `<div><b>${mv[m.id] ?? "–"}</b><span>${esc(m.name)}</span></div>`).join("")}</div><div style="display:flex;gap:10px;align-items:center"><span class="muted" style="font-size:12.5px">+${S.pts.checkin} pts · ${answered}/${S.metrics.length}</span><button class="btn sm ghost" data-act="unlock">Edit</button></div></div>`
+    ? `<div class="card done"><div class="dv">${S.metrics.filter((m) => m.type === "scale").slice(0, 3).map((m) => `<div><b>${mv[m.id] ?? "–"}</b><span>${esc(m.name)}</span></div>`).join("")}</div><div style="display:flex;gap:10px;align-items:center"><span class="muted" style="font-size:12.5px">Saved · +${S.pts.checkin} pts</span><button class="btn sm ghost" data-act="unlock">Edit</button></div></div>`
     : `<div class="card"><div class="ci">${S.metrics.map(q).join("")}
     <details class="notes"${Object.values(c.notes ?? {}).some(Boolean) ? " open" : ""}><summary>Notes by area</summary><div class="notes-grid">${S.noteAreas.map((a, i) => `<label>${esc(a)}<input type="text" id="note-${i}" data-note="${esc(a)}" value="${esc(c.notes?.[a] ?? "")}" placeholder="What happened"></label>`).join("")}</div></details></div>
-    <div class="ci-foot"><button class="link" data-act="metrics">Edit questions</button><button class="btn" data-act="lock">Lock in · +${S.pts.checkin}</button></div></div>`;
+    <div class="ci-foot"><button class="link" data-act="metrics">Edit questions</button><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><button class="btn" data-act="lock">Save check-in</button><span class="muted" style="font-size:11.5px">Earns +${S.pts.checkin} pts</span></div></div></div>`;
   const ago = diff(k, TODAY), ds = sum.day(k);
   if (!S.habits.length) return `${installHint()}${welcome()}`;
-  return `${installHint()}${board()}${clock()}${notices()}
+  return `${installHint()}<div id="boardwrap">${board()}</div>${clock()}<div id="noticewrap" style="display:contents">${notices()}</div>
   <div class="dayrow"><div><div class="sub">${ago === 0 ? "Today" : ago === 1 ? "Yesterday" : ago + " days ago"}</div><h2>${pd(k).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}</h2></div>
     <div class="arrows"><button class="ib" data-act="prev" aria-label="Previous day" ${ago >= 6 ? "disabled" : ""}>${I.l}</button><button class="ib" data-act="next" aria-label="Next day" ${ago === 0 ? "disabled" : ""}>${I.r}</button></div></div>
   <div class="tabs"><div class="tl"><button data-act="logall" data-v="0" aria-pressed="${!s.logAll}">In focus</button><button data-act="logall" data-v="1" aria-pressed="${!!s.logAll}">Everything</button></div>
-    <span class="today-pts"><b>${n(ds.pts)}</b> pts${ago === 0 ? " today" : ""}</span></div>
+    <span class="today-pts" id="todaypts"><b>${n(ds.pts)}</b> pts${ago === 0 ? " today" : ""}</span></div>
   <section>${groups}</section>
   ${rest}
   <section><div class="sh"><h2>Check-in</h2><span class="t">${tfmt(tmin(s.lightsOut) - 15)}</span></div>${ci}</section>
@@ -364,8 +369,8 @@ function vSettings() {
   const s = S.settings, P = S.pts, L = s.birth ? life(S, TODAY) : null, lo = tmin(s.lightsOut);
   const f = (key: string, label: string, sub: string, type = "number", extra = "", obj: "set" | "pt" = "set") =>
     `<div class="set"><label for="${obj}-${key}">${label}${sub ? `<small>${sub}</small>` : ""}</label><input id="${obj}-${key}" type="${type}" data-${obj}="${key}" value="${obj === "set" ? (s as unknown as Record<string, unknown>)[key] : (P as unknown as Record<string, unknown>)[key]}" ${extra}></div>`;
-  return `<section><div class="sh"><h2>Backup</h2><span class="t">Your data lives on this phone</span></div><div class="card pad" style="display:flex;flex-direction:column;gap:12px">
-    <p style="margin:0;font-size:13.5px;color:var(--ink2)">Everything is saved on this device only. Export a backup or copy a backup code (paste it into Notes) now and then, and before you delete the app from your home screen.</p>
+  return `${accountSection()}${remindersSection()}${lockSection()}<section><div class="sh"><h2>Backup</h2><span class="t">A copy you keep yourself</span></div><div class="card pad" style="display:flex;flex-direction:column;gap:12px">
+    <p style="margin:0;font-size:13.5px;color:var(--ink2)">Export a backup or copy a backup code now and then. With sync on, your plan is also saved to your account.</p>
     <div class="backup"><button class="btn sm" data-act="export">Export backup</button><button class="btn sm ghost" data-act="import">Import backup</button><button class="btn sm ghost" data-act="copycode">Copy backup code</button><button class="btn sm ghost" data-act="pastecode">Paste a code</button><input type="file" accept="application/json,.json" id="importfile" class="filein" tabindex="-1" aria-hidden="true"></div></div></section>
   <section><div class="sh"><h2>Points</h2><span class="t">Misses never cost points</span></div><div class="card">
     ${f("focus", "In-focus habit done", "", "number", 'min="0"', "pt")}${f("kept", "Locked-in habit kept", "", "number", 'min="0"', "pt")}${f("tracked", "Tracked don’t kept clean", "Tracked from day one", "number", 'min="0"', "pt")}
@@ -420,14 +425,18 @@ function sheet() {
     <div class="field"><label for="e-name">Name</label><input id="e-name" type="text" value="${esc(h.name)}"></div>
     <div class="two"><div class="field"><label for="e-area">Area</label><select id="e-area">${AREAS.map((a) => `<option${a === h.area ? " selected" : ""}>${esc(a)}</option>`).join("")}</select></div>
     <div class="field"><label for="e-kind">Type</label><select id="e-kind">${opt(KINDS, h.kind)}</select></div></div>
-    <div class="two"><div class="field"><label for="e-target">Times per week (weekly)</label><input id="e-target" type="number" min="1" max="7" value="${h.target ?? 1}"></div>
-    <div class="field"><label for="e-stack">Stack</label><select id="e-stack">${opt(STACKS, h.stack)}</select></div></div>
+    <div class="field"><label for="e-target">Times per week (weekly rhythms and projects)</label><input id="e-target" type="number" min="1" max="7" value="${h.target ?? 1}"></div>
     <div class="field"><label for="e-status">Where it lives</label><select id="e-status">${opt(STATUSES, h.status)}</select></div>
     <div class="actions">${ui.sheet.id ? (ui.confirmDel ? `<button class="btn danger" data-act="del">Delete for good</button>` : `<button class="btn ghost" data-act="askdel">Delete</button>`) : "<span></span>"}
       <div style="display:flex;gap:8px"><button class="btn ghost" data-act="close">Cancel</button><button class="btn" data-act="savehabit">Save</button></div></div>`;
+  } else if (ui.sheet.type === "pin") {
+    body = `<h2 id="sh-t">${pinUi.step === "new" ? "Choose a passcode" : "Enter it again"}</h2>
+    <p style="margin:0;font-size:13.5px;color:var(--ink2)">${pinUi.error ? `<span style="color:var(--bad)">${esc(pinUi.error)}</span>` : pinUi.step === "new" ? "4 to 6 digits." : "To make sure it's right."}</p>
+    ${dots(pinUi.entry.length, Math.max(4, pinUi.step === "confirm" ? pinUi.first.length : Math.min(6, Math.max(4, pinUi.entry.length))))}${keypad("pinsetkey")}
+    <div class="actions"><button class="btn ghost" data-act="close">Cancel</button><button class="btn" data-act="pinnext" ${pinUi.entry.length < 4 ? "disabled" : ""}>${pinUi.step === "new" ? "Next" : "Save passcode"}</button></div>`;
   } else if (ui.sheet.type === "code") {
     body = `<h2 id="sh-t">Paste a plan code</h2>
-    <p style="margin:0;font-size:13.5px;color:var(--ink2)">Copy the whole code, then long-press the box below and tap Paste. This replaces what's in the app now.</p>
+    <p style="margin:0;font-size:13.5px;color:var(--ink2)">Copy the whole code, then tap the box below and tap Paste. This replaces what's in the app now.</p>
     <textarea id="codein" rows="6" autocapitalize="off" autocorrect="off" spellcheck="false" style="font:inherit;font-size:13px;color:var(--ink);background:var(--s2);border:1px solid transparent;border-radius:10px;padding:10px;width:100%;resize:vertical" placeholder="GP1…"></textarea>
     <div class="actions"><span></span><div style="display:flex;gap:8px"><button class="btn ghost" data-act="close">Cancel</button><button class="btn" data-act="loadcode">Load</button></div></div>`;
   } else if (ui.sheet.type === "metrics") {
@@ -454,10 +463,85 @@ function sheet() {
   root.innerHTML = `<div class="scrim" data-act="close"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sh-t" data-stop="1"><div class="grab"></div>${body}</div></div>`;
 }
 
+
+/* ---------- account, reminders, lock ---------- */
+function accountSection() {
+  if (!cloud.cloudAvailable) return "";
+  const i = cloud.syncInfo();
+  if (i.email) {
+    const status = i.status === "error" ? "Couldn't reach the server. It will try again." : i.dirty ? "Changes waiting to sync" : i.at ? `Synced ${new Date(i.at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}` : "Synced";
+    return `<section><div class="sh"><h2>Sync</h2><span class="t">On</span></div><div class="card pad" style="display:flex;flex-direction:column;gap:12px">
+      <p style="margin:0;font-size:13.5px;color:var(--ink2)">Signed in as <b>${esc(i.email)}</b>. Your plan and history are saved to your account and restored if you sign in on another phone.</p>
+      <p style="margin:0;font-size:12.5px;color:var(--mut)">${status}</p>
+      <div class="backup"><button class="btn sm" data-act="syncnow">Sync now</button><button class="btn sm ghost" data-act="signout">Sign out</button></div></div></section>`;
+  }
+  return `<section><div class="sh"><h2>Sync</h2><span class="t">Off</span></div><div class="card pad" style="display:flex;flex-direction:column;gap:12px">
+    <p style="margin:0;font-size:13.5px;color:var(--ink2)">Sign in to back up your plan to your account and to turn on reminders. You'll get a 6-digit code by email. The email has only the code, nothing from your plan.</p>
+    ${auth.sent
+      ? `<div class="field"><label for="authcode">Code sent to ${esc(auth.email)}</label><input id="authcode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
+         <div class="backup"><button class="btn sm" data-act="verifycode" ${auth.busy ? "disabled" : ""}>Sign in</button><button class="btn sm ghost" data-act="authback">Use a different email</button></div>`
+      : `<div class="field"><label for="authemail">Email</label><input id="authemail" type="email" autocomplete="email" value="${esc(auth.email)}" placeholder="you@example.com"></div>
+         <div class="backup"><button class="btn sm" data-act="sendcode" ${auth.busy ? "disabled" : ""}>Email me a code</button></div>`}
+  </div></section>`;
+}
+function remindersSection() {
+  if (!cloud.cloudAvailable) return "";
+  const s = S.settings, r = s.reminders, lo = tmin(s.lightsOut);
+  const nav = navigator as Navigator & { standalone?: boolean };
+  const installed = nav.standalone || window.matchMedia("(display-mode: standalone)").matches;
+  const row = (id: keyof typeof r, label: string, when: string) =>
+    `<div class="set"><label>${label}<small>${when}</small></label><button class="b y" data-act="remtoggle" data-id="${id}" aria-pressed="${r[id]}" style="justify-self:end">${r[id] ? "On" : "Off"}</button></div>`;
+  let top: string;
+  if (!cloud.syncInfo().email) top = `<p style="margin:0;font-size:13.5px;color:var(--ink2)">Sign in above first, so reminders know which phone to go to.</p>`;
+  else if (!installed) top = `<p style="margin:0;font-size:13.5px;color:var(--ink2)">Open Game Plan from its home screen icon to turn on reminders. iPhone only allows them for installed apps.</p>`;
+  else if (remindersEnabled) top = `<div class="backup"><button class="btn sm ghost" data-act="remtest">Send a test</button><button class="btn sm ghost" data-act="remoff">Turn off on this phone</button></div>`;
+  else top = `<div class="backup"><button class="btn sm" data-act="remon">Turn on reminders</button></div>`;
+  return `<section><div class="sh"><h2>Reminders</h2><span class="t">${remindersEnabled ? "On" : "Off"}</span></div><div class="card">
+    <div class="pad" style="display:flex;flex-direction:column;gap:10px">${top}<p style="margin:0;font-size:12px;color:var(--mut)">They show on your lock screen, so they never name a habit.</p></div>
+    ${row("morning", "Morning", tfmt(tmin(s.wake)))}${row("shutdown", "Shutdown", tfmt(lo - 30))}${row("checkin", "Check-in", tfmt(lo - 15))}${row("weekly", "Weekly review", "Sundays, 4:00 PM")}
+  </div></section>`;
+}
+function lockSection() {
+  const c = lock.lockCfg();
+  if (!c) return `<section><div class="sh"><h2>App lock</h2><span class="t">Off</span></div><div class="card pad" style="display:flex;flex-direction:column;gap:12px">
+    <p style="margin:0;font-size:13.5px;color:var(--ink2)">Ask for a passcode (and Face ID if you like) when Game Plan opens. The screen is also hidden in the app switcher.</p>
+    <div class="backup"><button class="btn sm" data-act="pinset">Set a passcode</button></div></div></section>`;
+  const after = [[0, "Right away"], [1, "After 1 minute"], [5, "After 5 minutes"], [15, "After 15 minutes"]] as const;
+  return `<section><div class="sh"><h2>App lock</h2><span class="t">On</span></div><div class="card">
+    <div class="set"><label for="lockafter">Lock again<small>After you leave the app</small></label><select id="lockafter">${after.map(([v, l]) => `<option value="${v}"${c.after === v ? " selected" : ""}>${l}</option>`).join("")}</select></div>
+    ${lock.faceIdSupported() ? `<div class="set"><label>Face ID<small>Unlock without the passcode</small></label><button class="b y" data-act="${c.credId ? "faceoff" : "faceon"}" aria-pressed="${!!c.credId}" style="justify-self:end">${c.credId ? "On" : "Off"}</button></div>` : ""}
+    <div class="pad backup"><button class="btn sm ghost" data-act="pinset">Change passcode</button><button class="btn sm ghost" data-act="lockoff">Turn off lock</button></div>
+  </div></section>`;
+}
+function keypad(act: string) {
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];
+  return `<div class="keypad">${keys.map((k) => (k === "" ? "<span></span>" : `<button class="key" data-act="${act}" data-v="${k}" aria-label="${k === "del" ? "Delete" : k}">${k === "del" ? "⌫" : k}</button>`)).join("")}</div>`;
+}
+function dots(n: number, len: number) {
+  return `<div class="pindots" aria-hidden="true">${Array.from({ length: len }, (_, i) => `<i class="${i < n ? "on" : ""}"></i>`).join("")}</div>`;
+}
+function lockScreen() {
+  const c = lock.lockCfg()!;
+  return `<div class="lockscreen"><div class="brand">Second Half <span>Game Plan</span></div>
+    <p class="lockmsg">${pinUi.error ? `<span class="err">${esc(pinUi.error)}</span>` : "Enter your passcode"}</p>
+    ${dots(pinUi.entry.length, c.len)}${keypad("pinkey")}
+    ${c.credId ? `<button class="btn" data-act="faceunlock">Unlock with Face ID</button>` : ""}
+    ${pinUi.forgot ? `<div class="notice warn"><p>Forgot it? You can erase Game Plan on this phone and start over.${cloud.syncInfo().email ? " Sign in again afterwards and your synced plan comes back." : " Without sync, your history on this phone is lost."}</p><div class="backup"><button class="btn sm danger" data-act="erase">Erase and start over</button><button class="btn sm ghost" data-act="forgotno">Cancel</button></div></div>`
+      : `<button class="link" data-act="forgot">Forgot passcode?</button>`}</div>`;
+}
+
 /* ---------- render ---------- */
 const VIEWS: Record<string, () => string> = { today: vToday, plan: vPlan, insights: vInsights, settings: vSettings };
 const tab = () => { const t = location.hash.slice(1); return VIEWS[t] ? t : "today"; };
 export function render() {
+  if (lock.isLocked()) {
+    document.documentElement.classList.add("is-locked");
+    $("view").innerHTML = lockScreen();
+    $("topr").innerHTML = "";
+    $("sheet-root").innerHTML = "";
+    return;
+  }
+  document.documentElement.classList.remove("is-locked");
   const now = dk(new Date());
   if (now !== TODAY) { if (ui.view === TODAY) ui.view = now; TODAY = now; }
   sum = scoreSummary(S, TODAY);
@@ -532,6 +616,18 @@ async function importBackup(f: File) {
   } catch { toast("That file isn't a Game Plan backup."); }
 }
 
+/** After logging one habit: redraw that row, the scoreboard and the day's points, not the whole screen. */
+function refreshAfterLog(id: string) {
+  const h = HB(id), el = document.getElementById("r-" + id), k = ui.view;
+  if (!h || !el || tab() !== "today") { render(); return; }
+  sum = scoreSummary(S, TODAY);
+  el.outerHTML = row(h, k, h.status === "queued");
+  const bw = document.getElementById("boardwrap"); if (bw) bw.innerHTML = board();
+  const nw = document.getElementById("noticewrap"); if (nw) nw.innerHTML = notices();
+  const tp = document.getElementById("todaypts"); if (tp) tp.innerHTML = `<b>${n(sum.day(k).pts)}</b> pts${k === TODAY ? " today" : ""}`;
+  $("topr").innerHTML = `Lvl <b>${sum.level}</b> · ${checkinStreak(S, TODAY)}-day chain`;
+}
+
 function onClick(e: MouseEvent) {
   const t = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
   if (!t) return;
@@ -543,10 +639,16 @@ function onClick(e: MouseEvent) {
       const day = (S.logs[k] ??= {});
       if (day[id] === v) delete day[id];
       else { day[id] = v as "y" | "n"; if (v === "y") { const x = habitPoints(S, HB(id)!, k); if (x.pts) toast(`+${x.pts} pts`); } }
-      break;
+      refreshAfterLog(id); save();
+      return;
     }
-    case "mset": { const c = ck(k); c.m[id] = c.m[id] === +v ? null : +v; break; }
-    case "lock": ck(k).locked = true; toast(`Locked in. +${S.pts.checkin} pts.`); break;
+    case "mset": {
+      const c = ck(k); c.m[id] = c.m[id] === +v ? null : +v;
+      document.querySelectorAll<HTMLElement>(`[data-act=mset][data-id="${id}"]`).forEach((b) => b.setAttribute("aria-pressed", String(c.m[id] === +(b.dataset.v ?? ""))));
+      save();
+      return;
+    }
+    case "lock": ck(k).locked = true; toast(`Check-in saved. +${S.pts.checkin} pts.`); break;
     case "unlock": ck(k).locked = false; break;
     case "prev": ui.view = add(k, -1); break;
     case "next": ui.view = add(k, 1); break;
@@ -598,7 +700,7 @@ function onClick(e: MouseEvent) {
       if (!name) { $("e-name").focus(); return; }
       let h = ui.sheet?.id ? HB(ui.sheet.id) : undefined;
       if (!h) { h = makeHabit(uid("h"), name, "Faith", "daily"); S.habits.push(h); }
-      h.name = name; h.area = field("e-area"); h.kind = field("e-kind") as Kind; h.stack = field("e-stack") as Stack;
+      h.name = name; h.area = field("e-area"); h.kind = field("e-kind") as Kind;
       h.target = isWeekly(h) ? Math.max(1, Math.min(7, +field("e-target") || 1)) : null;
       const ns = field("e-status") as Status;
       if (ns !== h.status) {
@@ -623,7 +725,7 @@ function onClick(e: MouseEvent) {
     case "gadd": S.guesses.push({ h: field("g-h"), m: field("g-m"), lag: +field("g-l") }); break;
     case "gdel": S.guesses.splice(+v, 1); break;
     case "export": void exportBackup(); return;
-    case "pastecode": ui.sheet = { type: "code" }; sheet(); setTimeout(() => document.getElementById("codein")?.focus(), 50); return;
+    case "pastecode": ui.sheet = { type: "code" }; sheet(); return;
     case "loadcode": void loadCode(); return;
     case "copycode": void copyCode(); return;
     case "import": ($("importfile") as HTMLInputElement).click(); return;
@@ -639,6 +741,73 @@ function onClick(e: MouseEvent) {
         }
       }
       ui.confirmReset = null; ui.view = TODAY; toast("Reset.");
+      break;
+    }
+    case "pinkey": {
+      const c = lock.lockCfg(); if (!c) return;
+      pinUi.error = "";
+      if (v === "del") pinUi.entry = pinUi.entry.slice(0, -1); else if (pinUi.entry.length < c.len) pinUi.entry += v;
+      if (pinUi.entry.length === c.len) {
+        const tryPin = pinUi.entry;
+        void lock.checkPin(tryPin).then((ok) => { if (ok) { lock.unlock(); pinUi.entry = ""; pinUi.forgot = false; render(); void cloud.pull(); } else { pinUi.entry = ""; pinUi.error = "Wrong passcode. Try again."; render(); } });
+      }
+      render(); return;
+    }
+    case "faceunlock": void lock.unlockWithFaceId().then((ok) => { if (ok) { lock.unlock(); render(); void cloud.pull(); } }); return;
+    case "forgot": pinUi.forgot = true; render(); return;
+    case "forgotno": pinUi.forgot = false; render(); return;
+    case "erase": {
+      void cloud.signOut().finally(() => {
+        try { for (const k of Object.keys(localStorage)) if (k.startsWith("gameplan")) localStorage.removeItem(k); } catch { /* ignore */ }
+        location.reload();
+      });
+      return;
+    }
+    case "pinset": pinUi.entry = ""; pinUi.first = ""; pinUi.step = "new"; pinUi.error = ""; ui.sheet = { type: "pin" }; break;
+    case "pinsetkey": {
+      pinUi.error = "";
+      const max = pinUi.step === "confirm" ? pinUi.first.length : 6;
+      if (v === "del") pinUi.entry = pinUi.entry.slice(0, -1); else if (pinUi.entry.length < max) pinUi.entry += v;
+      sheet(); return;
+    }
+    case "pinnext": {
+      if (pinUi.entry.length < 4) return;
+      if (pinUi.step === "new") { pinUi.first = pinUi.entry; pinUi.entry = ""; pinUi.step = "confirm"; sheet(); return; }
+      if (pinUi.entry !== pinUi.first) { pinUi.entry = ""; pinUi.first = ""; pinUi.step = "new"; pinUi.error = "Those didn't match. Start again."; sheet(); return; }
+      void lock.setPin(pinUi.entry).then(() => { ui.sheet = null; pinUi.entry = ""; pinUi.first = ""; render(); toast("Passcode set. Game Plan will ask for it when it opens."); });
+      return;
+    }
+    case "lockoff": lock.removeLock(); toast("App lock is off."); break;
+    case "faceon": void lock.enableFaceId().then(() => { render(); toast("Face ID is on."); }).catch((err: Error) => toast(err.message || "Face ID wasn't set up.")); return;
+    case "faceoff": lock.disableFaceId(); break;
+    case "sendcode": {
+      const email = (($("authemail") as HTMLInputElement).value || "").trim();
+      if (!/^\S+@\S+\.\S+$/.test(email)) { toast("Enter your email address."); return; }
+      auth.email = email; auth.busy = true; render();
+      void cloud.sendCode(email).then(() => { auth.sent = true; toast("Code sent. Check your email."); })
+        .catch((err: Error) => toast(err.message.includes("rate") ? "Too many tries. Wait a few minutes and try again." : "Couldn't send the code. Try again."))
+        .finally(() => { auth.busy = false; render(); });
+      return;
+    }
+    case "verifycode": {
+      const code = (($("authcode") as HTMLInputElement).value || "").replace(/\D/g, "");
+      if (code.length < 6) { toast("Enter the code from the email."); return; }
+      auth.busy = true; render();
+      void cloud.verifyCode(auth.email, code).then(() => { auth.sent = false; toast("Signed in. Sync is on."); })
+        .catch(() => toast("That code didn't work. Check it, or send a new one."))
+        .finally(() => { auth.busy = false; render(); });
+      return;
+    }
+    case "authback": auth.sent = false; break;
+    case "syncnow": void cloud.syncNow().then(() => { render(); toast(cloud.syncInfo().status === "error" ? "Couldn't reach the server." : "Synced."); }); return;
+    case "signout": void cloud.disableReminders().catch(() => {}).finally(() => cloud.signOut().then(() => { remindersEnabled = false; render(); toast("Signed out. Your data stays on this phone."); })); return;
+    case "remon": void cloud.enableReminders(reminderList(S.settings)).then(() => { remindersEnabled = true; render(); toast("Reminders are on."); }).catch((err: Error) => toast(err.message)); return;
+    case "remoff": void cloud.disableReminders().then(() => { remindersEnabled = false; render(); toast("Reminders are off on this phone."); }); return;
+    case "remtest": void cloud.testReminder().then(() => toast("Test sent. It should arrive in a few seconds.")).catch((err: Error) => toast(err.message)); return;
+    case "remtoggle": {
+      const key = id as keyof State["settings"]["reminders"];
+      S.settings.reminders[key] = !S.settings.reminders[key];
+      void cloud.updateReminders(reminderList(S.settings)).catch(() => {});
       break;
     }
     default: return;
@@ -663,6 +832,7 @@ function onChange(e: Event) {
   const el = e.target as HTMLInputElement;
   if (el.id === "importfile") { const f = el.files?.[0]; if (f) void importBackup(f); el.value = ""; return; }
   if (el.id === "trend") { ui.trend = el.value; render(); return; }
+  if (el.id === "lockafter") { lock.setAfter(+el.value); return; }
   if (el.dataset.metric && el.type !== "range") { ck(ui.view).m[el.dataset.metric] = el.value === "" ? null : +el.value; save(); return; }
   if (el.dataset.pt) { const x = parseInt(el.value, 10); if (isFinite(x) && x >= 0) { (S.pts as unknown as Record<string, number>)[el.dataset.pt] = x; save(); render(); } return; }
   const key = el.dataset.set;
@@ -675,6 +845,7 @@ function onChange(e: Event) {
   t.dailyTarget = Math.max(1, Math.min(t.dailyWindow, t.dailyTarget));
   t.weeklyTarget = Math.max(1, Math.min(t.weeklyWindow, t.weeklyTarget));
   t.pauseMin = Math.max(1, Math.min(t.pauseWindow, t.pauseMin));
+  if (key === "lightsOut" || key === "wake") void cloud.updateReminders(reminderList(S.settings)).catch(() => {});
   save(); render();
 }
 
@@ -686,7 +857,17 @@ export function start() {
   window.addEventListener("hashchange", () => { window.scrollTo(0, 0); render(); });
   window.addEventListener("resize", () => { if (ui.grid) drawGrid(); });
   // An installed app can sit in memory overnight: re-render when it comes back so the date rolls over.
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") render(); });
+  document.addEventListener("visibilitychange", () => {
+    const visible = document.visibilityState === "visible";
+    lock.onVisibility(visible);
+    if (visible) { render(); if (!lock.isLocked()) void cloud.pull(); }
+  });
   void navigator.storage?.persist?.();
   render();
+  void cloud.initCloud({
+    get: () => S,
+    set: (s) => { S = s; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* ignore */ } },
+    changed: () => { if (!lock.isLocked()) render(); },
+    today: () => TODAY,
+  }).then(async () => { remindersEnabled = await cloud.remindersOn().catch(() => false); if (tab() === "settings" && !lock.isLocked()) render(); });
 }
