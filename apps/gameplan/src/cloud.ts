@@ -48,6 +48,20 @@ export async function verifyCode(email: string, token: string) {
   session = data.session;
   await pull();
 }
+export async function signInPassword(email: string, password: string) {
+  if (!sb) throw new Error("Sync isn't set up.");
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  session = data.session;
+  await pull();
+}
+/** First time: trade a one-time setup code for a password you choose, then sign in with it. */
+export async function setupPassword(email: string, code: string, password: string) {
+  const r = await fetch(`${URL_}/functions/v1/gameplan-auth`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, code, password }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error ?? "That didn't work. Try again.");
+  await signInPassword(email, password);
+}
 export async function signOut() {
   if (!sb) return;
   await sb.auth.signOut();

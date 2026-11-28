@@ -144,7 +144,7 @@ input[type=range].unset::-moz-range-progress{background:transparent}
 .numin{display:flex;gap:6px;align-items:center;justify-content:flex-end;grid-column:2/4}
 .numin input{width:90px;text-align:right}
 .numin span{font-size:13px;color:var(--mut)}
-input[type=text],input[type=email],input[type=number],input[type=date],input[type=time],select{font:inherit;font-size:14.5px;color:var(--ink);background:var(--s2);border:1px solid transparent;border-radius:10px;padding:9px 11px;width:100%;min-width:0}
+input[type=text],input[type=email],input[type=password],input[type=number],input[type=date],input[type=time],select{font:inherit;font-size:14.5px;color:var(--ink);background:var(--s2);border:1px solid transparent;border-radius:10px;padding:9px 11px;width:100%;min-width:0}
 input:focus,select:focus{border-color:var(--acc);outline:none}
 details.notes{border-top:1px solid var(--line);padding:13px 0}
 details.notes summary{cursor:pointer;font-size:14px;font-weight:500;list-style:none;display:flex;justify-content:space-between}

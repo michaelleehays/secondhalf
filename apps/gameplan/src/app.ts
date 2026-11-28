@@ -39,7 +39,7 @@ let S: State = load();
 let sum = scoreSummary(S, TODAY);
 
 interface Sheet { type: "habit" | "metrics" | "metric" | "code" | "pin" | "focus"; id?: string | null }
-const auth = { email: "", sent: false, busy: false };
+const auth = { email: "", sent: false, busy: false, mode: "password" as "password" | "setup" | "code" };
 const pinUi = { entry: "", first: "", step: "new" as "new" | "confirm", error: "", forgot: false };
 let remindersEnabled = false;
 const ui: { view: string; grid: boolean; sheet: Sheet | null; confirmReset: string | null; confirmDel: boolean; trend: string } =
@@ -505,16 +505,27 @@ function accountSection() {
       <div class="backup"><button class="btn sm" data-act="syncnow">Sync now</button><button class="btn sm ghost" data-act="signout">Sign out</button></div></div></section>`;
   }
   return `<section><div class="sh"><h2>Sync</h2><span class="t">Off</span></div><div class="card pad" style="display:flex;flex-direction:column;gap:12px">
-    <p style="margin:0;font-size:13.5px;color:var(--ink2)">Sign in to back up your plan to your account and to turn on reminders. You'll get a 6-digit code by email. The email has only the code, nothing from your plan.</p>
+    <p style="margin:0;font-size:13.5px;color:var(--ink2)">Sign in to back up your plan to your account and to turn on reminders. Sign in with your email and password.</p>
     ${signInForm()}
   </div></section>`;
 }
 function signInForm() {
-  return `${auth.sent
-      ? `<p style="margin:0;font-size:12.5px;color:var(--mut)">Type the 6-digit code from the email. On a computer you can also click the link in the email.</p><div class="field"><label for="authcode">Code sent to ${esc(auth.email)}</label><input id="authcode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
-         <div class="backup"><button class="btn sm" data-act="verifycode" ${auth.busy ? "disabled" : ""}>Sign in</button><button class="btn sm ghost" data-act="authback">Use a different email</button></div>`
-      : `<div class="field"><label for="authemail">Email</label><input id="authemail" type="email" autocomplete="email" value="${esc(auth.email)}" placeholder="you@example.com"></div>
-         <div class="backup"><button class="btn sm" data-act="sendcode" ${auth.busy ? "disabled" : ""}>Email me a code</button></div>`}`;
+  const tabs = `<div class="tabs" style="padding:0;gap:16px"><div class="tl">${(["password", "setup", "code"] as const).map((m) => `<button data-act="authmode" data-v="${m}" aria-pressed="${auth.mode === m}" style="font-size:13px">${m === "password" ? "Password" : m === "setup" ? "First time" : "Email code"}</button>`).join("")}</div></div>`;
+  const email = `<div class="field"><label for="authemail">Email</label><input id="authemail" type="email" autocomplete="email" value="${esc(auth.email)}" placeholder="you@example.com"></div>`;
+  const dis = auth.busy ? "disabled" : "";
+  if (auth.mode === "password")
+    return `${tabs}${email}<div class="field"><label for="authpw">Password</label><input id="authpw" type="password" autocomplete="current-password"></div>
+      <div class="backup"><button class="btn sm" data-act="pwsignin" ${dis}>Sign in</button></div>`;
+  if (auth.mode === "setup")
+    return `${tabs}<p style="margin:0;font-size:12.5px;color:var(--mut)">Have a setup code? Use it once to choose your password. After that, sign in with email and password.</p>${email}
+      <div class="field"><label for="authsetup">Setup code</label><input id="authsetup" type="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX-XXXX"></div>
+      <div class="field"><label for="authnew">New password (8+ characters)</label><input id="authnew" type="password" autocomplete="new-password"></div>
+      <div class="field"><label for="authnew2">Same password again</label><input id="authnew2" type="password" autocomplete="new-password"></div>
+      <div class="backup"><button class="btn sm" data-act="pwsetup" ${dis}>Save password and sign in</button></div>`;
+  return `${tabs}${auth.sent
+    ? `<p style="margin:0;font-size:12.5px;color:var(--mut)">Type the 6-digit code from the email.</p><div class="field"><label for="authcode">Code sent to ${esc(auth.email)}</label><input id="authcode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
+       <div class="backup"><button class="btn sm" data-act="verifycode" ${dis}>Sign in</button><button class="btn sm ghost" data-act="authback">Use a different email</button></div>`
+    : `${email}<div class="backup"><button class="btn sm" data-act="sendcode" ${dis}>Email me a code</button></div>`}`;
 }
 function remindersSection() {
   if (!cloud.cloudAvailable) return "";
@@ -835,6 +846,27 @@ function onClick(e: MouseEvent) {
       return;
     }
     case "authback": auth.sent = false; break;
+    case "authmode": { const em = document.getElementById("authemail") as HTMLInputElement | null; if (em) auth.email = em.value.trim(); auth.mode = v as typeof auth.mode; break; }
+    case "pwsignin": {
+      const email = field("authemail").trim(), pw = field("authpw");
+      if (!email || !pw) { toast("Enter your email and password."); return; }
+      auth.email = email; auth.busy = true; render();
+      void cloud.signInPassword(email, pw).then(() => toast(S.habits.length ? "Signed in. Your plan is synced." : "Signed in, but nothing is synced yet. Sign in on your phone too."))
+        .catch(() => toast("That email and password don't match. First time? Use the First time tab."))
+        .finally(() => { auth.busy = false; render(); });
+      return;
+    }
+    case "pwsetup": {
+      const email = field("authemail").trim(), code = field("authsetup").trim(), pw = field("authnew"), pw2 = field("authnew2");
+      if (!email || !code) { toast("Enter your email and the setup code."); return; }
+      if (pw.length < 8) { toast("Use at least 8 characters for the password."); return; }
+      if (pw !== pw2) { toast("The two passwords don't match."); return; }
+      auth.email = email; auth.busy = true; render();
+      void cloud.setupPassword(email, code, pw).then(() => { auth.mode = "password"; toast("Password saved. You're signed in."); })
+        .catch((err: Error) => toast(err.message))
+        .finally(() => { auth.busy = false; render(); });
+      return;
+    }
     case "syncnow": void cloud.syncNow().then(() => { render(); toast(cloud.syncInfo().status === "error" ? "Couldn't reach the server." : "Synced."); }); return;
     case "signout": void cloud.disableReminders().catch(() => {}).finally(() => cloud.signOut().then(() => { remindersEnabled = false; render(); toast("Signed out. Your data stays on this phone."); })); return;
     case "remon": void cloud.enableReminders(reminderList(S.settings)).then(() => { remindersEnabled = true; render(); toast("Reminders are on."); }).catch((err: Error) => toast(err.message)); return;
