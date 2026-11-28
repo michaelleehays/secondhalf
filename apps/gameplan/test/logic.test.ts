@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEMO_PLAN, add, buildPlan, mergeStates, reminderList, dailyStats, dayScore, discover, fisher, freshState, launchNext, life, normalize, pauseInfo, project,
+  DEMO_PLAN, add, buildPlan, focusTitle, mergeStates, reminderList, suggestFocusTitle, dailyStats, dayScore, discover, fisher, freshState, launchNext, life, normalize, pauseInfo, project,
   sampleState, scoreSummary, testPair, weeklyStats, welch, wk, type State,
 } from "../src/logic";
 
@@ -212,5 +212,16 @@ describe("reminders", () => {
     const r = reminderList(s);
     expect(r.map((x) => [x.id, x.time])).toEqual([["shutdown", "21:00"], ["checkin", "21:15"], ["weekly", "16:00"]]);
     expect(r.find((x) => x.id === "weekly")!.days).toEqual([0]);
+  });
+});
+
+describe("focus title", () => {
+  it("suggests a name from the in-focus areas and lets you override it", () => {
+    const s = plan(TODAY);
+    expect(suggestFocusTitle(s)).toBe("Build the foundation");
+    s.settings.focusTitle = "Win the Morning";
+    expect(focusTitle(s)).toBe("Win the Morning");
+    s.settings.focusTitle = "  ";
+    expect(focusTitle(s)).toBe("Build the foundation");
   });
 });

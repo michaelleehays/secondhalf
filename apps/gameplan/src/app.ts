@@ -4,7 +4,7 @@ import {
   stats, testPair, val, weekCount, wk,
   type Checkin, type Habit, type Kind, type Metric, type Stack, type State, type Stats, type Status, type TestResult,
 } from "./logic";
-import { reminderList } from "./logic";
+import { reminderList, focusTitle, suggestFocusTitle } from "./logic";
 import * as cloud from "./cloud";
 import * as lock from "./lock";
 
@@ -38,7 +38,7 @@ let TODAY = dk(new Date());
 let S: State = load();
 let sum = scoreSummary(S, TODAY);
 
-interface Sheet { type: "habit" | "metrics" | "metric" | "code" | "pin"; id?: string | null }
+interface Sheet { type: "habit" | "metrics" | "metric" | "code" | "pin" | "focus"; id?: string | null }
 const auth = { email: "", sent: false, busy: false };
 const pinUi = { entry: "", first: "", step: "new" as "new" | "confirm", error: "", forgot: false };
 let remindersEnabled = false;
@@ -184,6 +184,23 @@ function installHint() {
   return `<div class="install"><b>Put it on your home screen.</b> In Safari, tap Share, then <b>Add to Home Screen</b>. It opens full screen and works offline. <button class="link" data-act="hideinstall">Hide</button></div>`;
 }
 
+function focusCard() {
+  const b = by("building");
+  const start = b.map((h) => h.start!).sort()[0];
+  const day = start ? diff(start, TODAY) + 1 : 0;
+  const pen = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5l3 3L7 16H4v-3z"/></svg>';
+  const tick = '<svg viewBox="0 0 20 20" fill="none" stroke="#06130D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 10.5l3.2 3.2L15 7"/></svg>';
+  const items = b.map((h) => {
+    const v = val(S, h, TODAY), x = st(h);
+    const need = x.kind === "w" ? S.settings.weeklyTarget : S.settings.dailyTarget;
+    const prog = x.kind === "w" ? `${x.done}/${need} weeks` : `${x.done}/${need} days`;
+    return `<div><div class="fitem"><span class="ck ${v ?? ""}">${v === "y" ? tick : ""}</span><b>${esc(h.name)}</b><small>${prog} to lock in</small></div><div class="fbar"><i style="width:${Math.min(100, (x.done / need) * 100)}%"></i></div></div>`;
+  }).join("");
+  return `<section class="focus" aria-label="Current focus"><div class="cap">Focus right now${day ? ` · day ${day}` : ""}</div>
+    <button class="ftitle" data-act="focusedit" aria-label="Rename your focus">${esc(focusTitle(S))}${pen}</button>
+    ${items ? `<div class="fitems">${items}</div>` : `<p class="lede" style="padding:0">Start a habit from the Plan tab and it shows up here.</p>`}</section>`;
+}
+
 function welcome() {
   return `<section class="card pad" style="display:flex;flex-direction:column;gap:14px">
     <div class="cap">Welcome</div>
@@ -228,7 +245,7 @@ function vToday() {
     <div class="ci-foot"><button class="link" data-act="metrics">Edit questions</button><div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px"><button class="btn" data-act="lock">Save check-in</button><span class="muted" style="font-size:11.5px">Earns +${S.pts.checkin} pts</span></div></div></div>`;
   const ago = diff(k, TODAY), ds = sum.day(k);
   if (!S.habits.length) return `${installHint()}${welcome()}`;
-  return `${installHint()}<div id="boardwrap">${board()}</div>${clock()}<div id="noticewrap" style="display:contents">${notices()}</div>
+  return `${installHint()}<div id="focuswrap">${focusCard()}</div><div id="boardwrap">${board()}</div>${clock()}<div id="noticewrap" style="display:contents">${notices()}</div>
   <div class="dayrow"><div><div class="sub">${ago === 0 ? "Today" : ago === 1 ? "Yesterday" : ago + " days ago"}</div><h2>${pd(k).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}</h2></div>
     <div class="arrows"><button class="ib" data-act="prev" aria-label="Previous day" ${ago >= 6 ? "disabled" : ""}>${I.l}</button><button class="ib" data-act="next" aria-label="Next day" ${ago === 0 ? "disabled" : ""}>${I.r}</button></div></div>
   <div class="tabs"><div class="tl"><button data-act="logall" data-v="0" aria-pressed="${!s.logAll}">In focus</button><button data-act="logall" data-v="1" aria-pressed="${!!s.logAll}">Everything</button></div>
@@ -429,6 +446,13 @@ function sheet() {
     <div class="field"><label for="e-status">Where it lives</label><select id="e-status">${opt(STATUSES, h.status)}</select></div>
     <div class="actions">${ui.sheet.id ? (ui.confirmDel ? `<button class="btn danger" data-act="del">Delete for good</button>` : `<button class="btn ghost" data-act="askdel">Delete</button>`) : "<span></span>"}
       <div style="display:flex;gap:8px"><button class="btn ghost" data-act="close">Cancel</button><button class="btn" data-act="savehabit">Save</button></div></div>`;
+  } else if (ui.sheet.type === "focus") {
+    const sug = suggestFocusTitle(S);
+    body = `<h2 id="sh-t">Name your focus</h2>
+    <p style="margin:0;font-size:13.5px;color:var(--ink2)">A short name for what you're working on right now. It sits at the top of Today.</p>
+    <div class="field"><label for="focustitle">Focus</label><input id="focustitle" type="text" maxlength="40" value="${esc(S.settings.focusTitle || focusTitle(S))}"></div>
+    <button class="link" data-act="focusauto" style="align-self:flex-start">Use the suggestion: ${esc(sug)}</button>
+    <div class="actions"><span></span><div style="display:flex;gap:8px"><button class="btn ghost" data-act="close">Cancel</button><button class="btn" data-act="focussave">Save</button></div></div>`;
   } else if (ui.sheet.type === "pin") {
     body = `<h2 id="sh-t">${pinUi.step === "new" ? "Choose a passcode" : "Enter it again"}</h2>
     <p style="margin:0;font-size:13.5px;color:var(--ink2)">${pinUi.error ? `<span style="color:var(--bad)">${esc(pinUi.error)}</span>` : pinUi.step === "new" ? "4 to 6 digits." : "To make sure it's right."}</p>
@@ -623,6 +647,7 @@ function refreshAfterLog(id: string) {
   sum = scoreSummary(S, TODAY);
   el.outerHTML = row(h, k, h.status === "queued");
   const bw = document.getElementById("boardwrap"); if (bw) bw.innerHTML = board();
+  const fw = document.getElementById("focuswrap"); if (fw) fw.innerHTML = focusCard();
   const nw = document.getElementById("noticewrap"); if (nw) nw.innerHTML = notices();
   const tp = document.getElementById("todaypts"); if (tp) tp.innerHTML = `<b>${n(sum.day(k).pts)}</b> pts${k === TODAY ? " today" : ""}`;
   $("topr").innerHTML = `Lvl <b>${sum.level}</b> · ${checkinStreak(S, TODAY)}-day chain`;
@@ -777,6 +802,9 @@ function onClick(e: MouseEvent) {
       void lock.setPin(pinUi.entry).then(() => { ui.sheet = null; pinUi.entry = ""; pinUi.first = ""; render(); toast("Passcode set. Game Plan will ask for it when it opens."); });
       return;
     }
+    case "focusedit": ui.sheet = { type: "focus" }; break;
+    case "focusauto": S.settings.focusTitle = ""; ui.sheet = null; toast("Using the suggested name."); break;
+    case "focussave": S.settings.focusTitle = field("focustitle").trim(); ui.sheet = null; toast("Focus renamed."); break;
     case "lockoff": lock.removeLock(); toast("App lock is off."); break;
     case "faceon": void lock.enableFaceId().then(() => { render(); toast("Face ID is on."); }).catch((err: Error) => toast(err.message || "Face ID wasn't set up.")); return;
     case "faceoff": lock.disableFaceId(); break;

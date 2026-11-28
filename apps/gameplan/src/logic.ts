@@ -47,6 +47,8 @@ export interface Settings {
   wake: string;
   logAll: boolean;
   reminders: { morning: boolean; shutdown: boolean; checkin: boolean; weekly: boolean };
+  /** The name of what you're focused on now. Empty means use suggestFocusTitle. */
+  focusTitle: string;
 }
 export interface Points {
   focus: number;
@@ -103,6 +105,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxActive: 2, dailyWindow: 21, dailyTarget: 17, weeklyWindow: 4, weeklyTarget: 3, pauseWindow: 7, pauseMin: 5, gracePer: 7,
   birth: "", lifeExp: 75.8, lightsOut: "21:30", wake: "05:30", logAll: true,
   reminders: { morning: true, shutdown: true, checkin: true, weekly: true },
+  focusTitle: "",
 };
 export const METRICS: Metric[] = [
   { id: "mood", name: "Mood", type: "scale", lo: "Rough", hi: "Great", better: "high" },
@@ -590,3 +593,18 @@ export function reminderList(s: Settings) {
   ] as const;
   return all.filter((r) => s.reminders[r.id]).map((r) => ({ ...r, days: r.days ? [...r.days] : null }));
 }
+
+const AREA_TITLES: Record<string, string> = {
+  Foundation: "Build the foundation", Faith: "Put God first", Marriage: "Invest in her", Finances: "Own the money",
+  Fitness: "Get strong", "Family & Friends": "Show up for them", Work: "Level up at work", "Don't": "Cut what holds you back",
+};
+/** A starting name for the current focus, from the areas of the habits in focus. */
+export function suggestFocusTitle(S: State) {
+  const b = byStatus(S, "building");
+  if (!b.length) return "Pick your first focus";
+  const count: Record<string, number> = {};
+  for (const h of b) count[h.area] = (count[h.area] ?? 0) + 1;
+  const top = Object.entries(count).sort((x, y) => y[1] - x[1] || b.findIndex((h) => h.area === x[0]) - b.findIndex((h) => h.area === y[0]))[0]![0];
+  return AREA_TITLES[top] ?? `Focus: ${top}`;
+}
+export const focusTitle = (S: State) => S.settings.focusTitle.trim() || suggestFocusTitle(S);
