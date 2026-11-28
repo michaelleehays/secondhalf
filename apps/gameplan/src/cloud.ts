@@ -10,7 +10,7 @@ const FN = () => `${URL_}/functions/v1/gameplan-push`;
 
 export const cloudAvailable = !!(URL_ && KEY);
 const sb: SupabaseClient | null = cloudAvailable
-  ? createClient(URL_!, KEY!, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: "gameplan:auth" } })
+  ? createClient(URL_!, KEY!, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: "implicit", storageKey: "gameplan:auth" } })
   : null;
 
 interface Meta { last: string | null; dirty: boolean; at: string | null }
@@ -28,13 +28,17 @@ export async function initCloud(h: Hooks) {
   if (!sb) return;
   const { data } = await sb.auth.getSession();
   session = data.session;
+  // Arrived from an emailed sign-in link: drop the tokens from the address bar.
+  if (/access_token=|error_description=/.test(location.hash)) history.replaceState(null, "", location.pathname + "#settings");
   sb.auth.onAuthStateChange((_e, s) => { session = s; });
   if (session) void pull();
 }
 
 export async function sendCode(email: string) {
   if (!sb) throw new Error("Sync isn't set up.");
-  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+  // The code works everywhere. The link also works on a computer, as long as this site is on the
+  // project's allowed redirect list; otherwise Supabase sends the link to its main Site URL.
+  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: `${location.origin}/` } });
   if (error) throw error;
 }
 export async function verifyCode(email: string, token: string) {

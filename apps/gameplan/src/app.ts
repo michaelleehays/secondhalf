@@ -511,7 +511,7 @@ function accountSection() {
 }
 function signInForm() {
   return `${auth.sent
-      ? `<div class="field"><label for="authcode">Code sent to ${esc(auth.email)}</label><input id="authcode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
+      ? `<p style="margin:0;font-size:12.5px;color:var(--mut)">Type the 6-digit code from the email. On a computer you can also click the link in the email.</p><div class="field"><label for="authcode">Code sent to ${esc(auth.email)}</label><input id="authcode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
          <div class="backup"><button class="btn sm" data-act="verifycode" ${auth.busy ? "disabled" : ""}>Sign in</button><button class="btn sm ghost" data-act="authback">Use a different email</button></div>`
       : `<div class="field"><label for="authemail">Email</label><input id="authemail" type="email" autocomplete="email" value="${esc(auth.email)}" placeholder="you@example.com"></div>
          <div class="backup"><button class="btn sm" data-act="sendcode" ${auth.busy ? "disabled" : ""}>Email me a code</button></div>`}`;
@@ -905,5 +905,5 @@ export function start() {
     set: (s) => { S = s; try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* ignore */ } },
     changed: () => { if (!lock.isLocked()) render(); },
     today: () => TODAY,
-  }).then(async () => { remindersEnabled = await cloud.remindersOn().catch(() => false); if (tab() === "settings" && !lock.isLocked()) render(); });
+  }).then(async () => { remindersEnabled = await cloud.remindersOn().catch(() => false); if (!lock.isLocked()) render(); });
 }
