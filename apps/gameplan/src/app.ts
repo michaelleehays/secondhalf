@@ -4,7 +4,7 @@ import {
   stats, testPair, val, weekCount, wk,
   type Checkin, type Habit, type Kind, type Metric, type Stack, type State, type Stats, type Status, type TestResult,
 } from "./logic";
-import { reminderList, focusTitle, suggestFocusTitle } from "./logic";
+import { reminderList, focusTitle, suggestFocusTitle, lockInDate, schedule } from "./logic";
 import * as cloud from "./cloud";
 import * as lock from "./lock";
 
@@ -42,8 +42,8 @@ interface Sheet { type: "habit" | "metrics" | "metric" | "code" | "pin" | "focus
 const auth = { email: "", sent: false, busy: false, mode: "password" as "password" | "setup" | "code" };
 const pinUi = { entry: "", first: "", step: "new" as "new" | "confirm", error: "", forgot: false };
 let remindersEnabled = false;
-const ui: { view: string; grid: boolean; sheet: Sheet | null; confirmReset: string | null; confirmDel: boolean; trend: string } =
-  { view: TODAY, grid: false, sheet: null, confirmReset: null, confirmDel: false, trend: "mood" };
+const ui: { view: string; grid: boolean; sched: boolean; sheet: Sheet | null; confirmReset: string | null; confirmDel: boolean; trend: string } =
+  { view: TODAY, grid: false, sched: false, sheet: null, confirmReset: null, confirmDel: false, trend: "mood" };
 
 function load(): State {
   try {
@@ -130,10 +130,36 @@ function board() {
     <div class="board-top"><div><div class="cap">This week</div><div class="huge">${n(sum.thisW)}<small>pts</small></div></div>
       <div class="vs"><span class="cap">vs last week, same day</span><b class="${d >= 0 ? "up" : "down"}">${d >= 0 ? "+" : "−"}${n(Math.abs(d))}</b><span class="cap">Best week ${n(sum.best)}</span></div></div>
     <div class="bars">${bars}</div>
+    ${paceText()}
     <div class="board-foot"><span>Bars: this week · line: last week · dashed: last week's days still ahead</span></div>
     <div class="board-foot"><span>Today <b>${n(td.pts)} pts</b>${td.rating != null ? ` · rating <b>${pct(td.rating)}</b>` : ""}</span><span class="lvl">Level <b>${sum.level}</b><span class="t"><i style="width:${sum.lvlPts / 10}%"></i></span>${n(sum.lvlPts)}/1,000</span></div>
   </section>`;
 }
+/** Plain words: how the current focus block is going and when it finishes if you stay on course. */
+function paceText() {
+  const b = by("building");
+  if (!b.length) return "";
+  const s = S.settings, need = s.dailyTarget / s.dailyWindow;
+  const parts: string[] = [], behind: string[] = [];
+  let finish = TODAY, stuck = false;
+  for (const h of b) {
+    const x = st(h), when = lockInDate(S, h, TODAY);
+    if (!when) stuck = true; else if (when > finish) finish = when;
+    if (x.kind === "d") {
+      const ok = x.l7.days === 0 || x.l7.done / x.l7.days >= need;
+      parts.push(`${esc(h.name)} ${x.l7.done} of ${x.l7.days || 0}`);
+      if (!ok) behind.push(esc(h.name));
+    } else {
+      parts.push(`${esc(h.name)} ${x.thisWeek} of ${x.target} this week`);
+      if (x.status === "risk" || x.status === "lost") behind.push(esc(h.name));
+    }
+  }
+  const days = diff(TODAY, finish);
+  const status = behind.length ? `Behind on ${behind.join(" and ")}. Get back to ${s.pauseMin} of ${s.pauseWindow} days.` : "You're on pace.";
+  const end = stuck ? "Stay on course and the dates will show here." : finish === TODAY ? "Everything in this block is ready to lock in today." : `Stay on course and the whole block locks in <b>${pd(finish).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}</b>, ${days} ${days === 1 ? "day" : "days"} from now.`;
+  return `<div class="pace"><p><b>${esc(focusTitle(S))}:</b> ${status} Last 7 days: ${parts.join(", ")}.</p><p>${end}</p></div>`;
+}
+
 function clock() {
   if (!S.settings.birth) return `<section class="card clock" aria-label="Life clock"><div class="cap">Life clock</div>
     <p style="margin:0;font-size:13.5px;color:var(--ink2)">Add your birth date to see how many weeks you have left. It stays on this phone.</p>
@@ -263,7 +289,7 @@ function vToday() {
     <span class="today-pts" id="todaypts"><b>${n(ds.pts)}</b> pts${ago === 0 ? " today" : ""}</span></div>
   <section>${groups}</section>
   ${rest}
-  <section><div class="sh"><h2>Check-in</h2><span class="t">${tfmt(tmin(s.lightsOut) - 15)}</span></div>${ci}</section>
+  <section><div class="sh"><h2>Check-in</h2><span class="t">${tfmt(tmin(s.lightsOut) - 45)}</span></div>${ci}</section>
   ${S.sample ? `<p class="foot">Showing example history. Start fresh in Settings.</p>` : ""}`;
 }
 
@@ -277,7 +303,8 @@ function vPlan() {
   ${notices()}
   <section><div class="sh"><h2>In focus</h2><span class="t num">${b.length} of ${s.maxActive}</span></div>
     ${b.length ? `<ul class="card list">${b.map((h) => two(h, `<span class="muted" style="font-size:12px">since ${fmt(h.start!)}</span>`)).join("")}</ul>` : `<div class="card pad muted">Nothing in focus. Start the first item below.</div>`}</section>
-  <section><div class="sh"><h2>Up next</h2><span class="t">${q.length} in order</span></div>
+  <section><div class="sh"><h2>Up next</h2><span style="display:flex;gap:14px;align-items:baseline"><span class="t">${q.length} in order</span><button class="link" data-act="sched">${ui.sched ? "Hide schedule" : "Schedule"}</button></span></div>
+    ${ui.sched ? scheduleView() : ""}
     <ol class="card list">${q.map((h, i) => { const bl = baselineRate(S, h, TODAY); return `<li class="li"><span class="n">${i + 1}</span><div><button class="hn" data-act="edit" data-id="${h.id}">${esc(h.name)}</button><div class="sub">${esc(h.area)} · ${KINDS[h.kind]}${h.target ? ` · ${h.target}×/wk` : ""}${!isWeekly(h) && bl.rate != null ? ` · now ${pct(bl.rate)}` : ""}</div></div>
       <div class="when">~${fmt(pj.at[h.id]!)}<small>est. start</small></div><div class="mv"><button class="ib" data-act="move" data-id="${h.id}" data-v="-1" aria-label="Move up" ${i === 0 ? "disabled" : ""}>${I.u}</button><button class="ib" data-act="move" data-id="${h.id}" data-v="1" aria-label="Move down" ${i === q.length - 1 ? "disabled" : ""}>${I.d}</button></div></li>`; }).join("")}</ol>
     <button class="btn ghost" data-act="add" style="align-self:flex-start">Add a habit</button></section>
@@ -289,6 +316,39 @@ function vPlan() {
     ${by("maintaining").length ? `<ul class="card list">${by("maintaining").map((h) => two(h)).join("")}</ul>` : '<div class="card pad muted">Your first graduate lands here and stays on the check-in.</div>'}</section>
   <section><div class="sh"><h2>Automate once</h2><span class="t">Set up, then forget</span></div>
     <ul class="card list">${by("automated").map((h) => `<li class="li two"><div><button class="hn" data-act="edit" data-id="${h.id}">${esc(h.name)}</button><div class="sub">${esc(h.area)}</div></div><button class="b y" data-act="setup" data-id="${h.id}" aria-pressed="${h.setup}">${h.setup ? "Set up" : "Not yet"}</button></li>`).join("")}</ul></section>`;
+}
+
+const AREA_COLORS: Record<string, string> = {
+  Foundation: "#F5B700", Faith: "#A78BFA", Marriage: "#F472B6", Finances: "#34D399",
+  Fitness: "#FB923C", "Family & Friends": "#60A5FA", Work: "#94A3B8", "Don't": "#F87171",
+};
+const areaColor = (a: string) => AREA_COLORS[a] ?? "#C5CCD6";
+/** Weeks as cells, one row per month. Each cell has a stripe for every habit in focus that week. */
+function scheduleView() {
+  const sc = schedule(S, TODAY, S.settings.maxActive);
+  const rows: { key: string; label: string; weeks: string[] }[] = [];
+  for (let ws = wk(TODAY); ws <= wk(sc.last); ws = add(ws, 7)) {
+    const d = pd(ws), key = `${d.getFullYear()}-${d.getMonth()}`;
+    if (rows[rows.length - 1]?.key !== key) {
+      const yr = !rows.length || d.getMonth() === 0 ? ` '${String(d.getFullYear()).slice(2)}` : "";
+      rows.push({ key, label: d.toLocaleDateString(undefined, { month: "short" }) + yr, weeks: [] });
+    }
+    rows[rows.length - 1]!.weeks.push(ws);
+  }
+  const active = (ws: string) => sc.items.filter((x) => x.start <= add(ws, 6) && x.end > ws);
+  const grid = rows.map((r) => `<div class="srow"><span class="smon">${r.label}</span><div class="swk">${r.weeks.map((ws) => {
+    const a = active(ws);
+    return `<button class="scell${ws === wk(TODAY) ? " now" : ""}" data-act="weekinfo" data-v="${ws}" aria-label="Week of ${fmt(ws)}: ${esc(a.map((x) => x.h.name).join(", ") || "nothing")}">${a.map((x) => `<i style="background:${areaColor(x.h.area)}"></i>`).join("")}</button>`;
+  }).join("")}</div></div>`).join("");
+  const areas = [...new Set(sc.items.map((x) => x.h.area))];
+  const starts: Record<string, typeof sc.items> = {};
+  for (const x of sc.items) { const m = fmtM(x.start); (starts[m] ??= []).push(x); }
+  return `<div class="card pad sched">
+    <p class="lede" style="padding:0">If every habit locks in on schedule. Each square is a week; each stripe is a habit in focus that week. Tap a week to see which.</p>
+    ${grid}
+    <div class="slegend">${areas.map((a) => `<span><i style="background:${areaColor(a)}"></i>${esc(a)}</span>`).join("")}</div>
+    <div class="sstarts">${Object.entries(starts).map(([m, xs]) => `<div><div class="cap">${m}</div>${xs.map((x) => `<div class="sitem"><i style="background:${areaColor(x.h.area)}"></i><span>${esc(x.h.name)}</span><small>${x.current ? `locks in ~${fmt(x.end)}` : `starts ~${fmt(x.start)}`}</small></div>`).join("")}</div>`).join("")}</div>
+  </div>`;
 }
 
 function spark(h: Habit, startK: string) {
@@ -431,8 +491,8 @@ function vSettings() {
   <section><div class="sh"><h2>Check-in</h2></div><div class="card"><div class="set"><label>Questions<small>${S.metrics.length} questions · ${S.noteAreas.length} note areas</small></label><button class="btn sm ghost" data-act="metrics">Edit</button></div></div></section>
   <section><div class="sh"><h2>Daily rhythm</h2><span class="t">Reminders come in a later update</span></div><div class="card">
     <div class="prompt"><b>${tfmt(tmin(s.wake))}</b><span>Morning stack.</span></div>
+    <div class="prompt"><b>${tfmt(lo - 45)}</b><span>Check-in. 60 seconds, before the phone goes down.</span></div>
     <div class="prompt"><b>${tfmt(lo - 30)}</b><span>Shutdown. Phone on the charger outside the bedroom.</span></div>
-    <div class="prompt"><b>${tfmt(lo - 15)}</b><span>Check-in. 60 seconds, then lights out.</span></div>
     <div class="prompt"><b>SUN 4 PM</b><span>Weekly review: your score vs. last week, graduate, re-order the queue.</span></div></div></section>
   <section><div class="sh"><h2>Start over</h2></div><div class="card pad" style="display:flex;flex-direction:column;gap:12px">
     ${S.sample ? `<p style="margin:0;font-size:13.5px;color:var(--ink2)">You're looking at example data.</p>` : ""}
@@ -551,7 +611,7 @@ function remindersSection() {
   else top = `<div class="backup"><button class="btn sm" data-act="remon">Turn on reminders</button></div>`;
   return `<section><div class="sh"><h2>Reminders</h2><span class="t">${remindersEnabled ? "On" : "Off"}</span></div><div class="card">
     <div class="pad" style="display:flex;flex-direction:column;gap:10px">${top}<p style="margin:0;font-size:12px;color:var(--mut)">They show on your lock screen, so they never name a habit.</p></div>
-    ${row("morning", "Morning", tfmt(tmin(s.wake)))}${row("shutdown", "Shutdown", tfmt(lo - 30))}${row("checkin", "Check-in", tfmt(lo - 15))}${row("weekly", "Weekly review", "Sundays, 4:00 PM")}
+    ${row("morning", "Morning", tfmt(tmin(s.wake)))}${row("checkin", "Check-in", tfmt(lo - 45))}${row("shutdown", "Shutdown", tfmt(lo - 30))}${row("weekly", "Weekly review", "Sundays, 4:00 PM")}
   </div></section>`;
 }
 function lockSection() {
@@ -843,6 +903,8 @@ function onClick(e: MouseEvent) {
       return;
     }
     case "hidelockhint": try { localStorage.setItem("gameplan:hide-lockhint", "1"); } catch { /* ignore */ } break;
+    case "sched": ui.sched = !ui.sched; break;
+    case "weekinfo": { const ws = v, xs = schedule(S, TODAY, S.settings.maxActive).items.filter((x) => x.start <= add(ws, 6) && x.end > ws); toast(`Week of ${fmt(ws)}: ${xs.map((x) => x.h.name).join(", ") || "nothing scheduled"}`); return; }
     case "focusedit": ui.sheet = { type: "focus" }; break;
     case "focusauto": S.settings.focusTitle = ""; ui.sheet = null; toast("Using the suggested name."); break;
     case "focussave": S.settings.focusTitle = field("focustitle").trim(); ui.sheet = null; toast("Focus renamed."); break;

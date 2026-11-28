@@ -330,26 +330,72 @@ export function pauseInfo(S: State, today: string) {
   return { paused: lost.length > 0, lost };
 }
 
-/** Estimated start date for every queued item, given `max` habits in focus at once. */
-export function project(S: State, today: string, max: number) {
+/**
+ * The date a habit in focus locks in if every day (or week) from now on goes to plan.
+ * Today counts as done unless it is already logged. Null if it can't within a year.
+ */
+export function lockInDate(S: State, h: Habit, today: string): string | null {
+  const s = S.settings, start = h.start ?? today;
+  const done = (k: string) => {
+    if (k < start) return false;
+    const v = val(S, h, k);
+    if (k > today || (k === today && v === undefined)) return true;
+    return v === "y";
+  };
+  if (!isWeekly(h)) {
+    for (let d = today, i = 0; i < 400; i++, d = add(d, 1)) {
+      if (diff(start, d) + 1 < s.dailyWindow) continue;
+      let c = 0;
+      for (let j = 0; j < s.dailyWindow; j++) if (done(add(d, -j))) c++;
+      if (c >= s.dailyTarget) return d;
+    }
+    return null;
+  }
+  // Weekly: judged on completed weeks, so it locks in the Monday after the qualifying week.
+  const t = h.target ?? 1, cw = wk(today), sw = wk(start);
+  const hit = (ws: string) => {
+    if (ws >= cw) return true;
+    let c = 0;
+    for (let i = 0; i < 7; i++) { const k = add(ws, i); if (k < start) continue; if (k > today) c++; else if (val(S, h, k) === "y") c++; }
+    return ws === cw || c >= t; // the current week is assumed to go to plan
+  };
+  for (let we = add(cw, 7), i = 0; i < 60; i++, we = add(we, 7)) {
+    const weeks: string[] = [];
+    for (let ws = add(we, -7); ws >= sw && weeks.length < s.weeklyWindow; ws = add(ws, -7)) weeks.push(ws);
+    if (weeks.length < s.weeklyWindow) continue;
+    if (weeks.filter(hit).length >= s.weeklyTarget) return we;
+  }
+  return null;
+}
+
+export interface Slot { h: Habit; start: string; end: string; current: boolean }
+/**
+ * When everything lands if you stay on course: habits in focus run until they lock in,
+ * then each freed slot takes the next item in the queue for its own lock-in window.
+ */
+export function schedule(S: State, today: string, max: number) {
   const s = S.settings, dur = (h: Habit) => (isWeekly(h) ? s.weeklyWindow * 7 : s.dailyWindow);
-  let slots = byStatus(S, "building").map((h) => {
-    const st = stats(S, h, today);
-    let e = st.ready ? today : add(h.start ?? today, dur(h));
-    if (e <= today && !st.ready) e = add(today, 7);
-    return e;
-  }).sort();
+  const items: Slot[] = by(S, "building").map((h) => ({ h, start: h.start ?? today, end: lockInDate(S, h, today) ?? add(today, dur(h)), current: true }));
+  let slots = items.map((x) => x.end).sort();
   if (slots.length > max) slots = slots.slice(slots.length - max);
   while (slots.length < max) slots.push(today);
-  const at: Record<string, string> = {};
-  let last = today;
-  for (const h of byStatus(S, "queued")) {
+  for (const h of by(S, "queued")) {
     let i = 0;
     for (let j = 1; j < slots.length; j++) if (slots[j]! < slots[i]!) i = j;
-    at[h.id] = slots[i]!;
-    if (slots[i]! > last) last = slots[i]!;
-    slots[i] = add(slots[i]!, dur(h));
+    const start = slots[i]!, end = add(start, dur(h));
+    items.push({ h, start, end, current: false });
+    slots[i] = end;
   }
+  const last = items.reduce((m, x) => (x.end > m ? x.end : m), today);
+  return { items, last };
+}
+const by = (S: State, st: Status) => S.habits.filter((h) => h.status === st);
+
+/** Estimated start date for every queued item, given `max` habits in focus at once. */
+export function project(S: State, today: string, max: number) {
+  const sc = schedule(S, today, max), at: Record<string, string> = {};
+  let last = today;
+  for (const x of sc.items) if (!x.current) { at[x.h.id] = x.start; if (x.start > last) last = x.start; }
   return { at, last };
 }
 
@@ -587,8 +633,8 @@ export function reminderList(s: Settings) {
   const [lh, lm] = s.lightsOut.split(":").map(Number), lo = lh! * 60 + lm!;
   const all = [
     { id: "morning", time: s.wake, days: null, title: "Morning", body: "Start your morning stack." },
+    { id: "checkin", time: t(lo - 45), days: null, title: "Check-in", body: "60 seconds: log today and save your check-in." },
     { id: "shutdown", time: t(lo - 30), days: null, title: "Shutdown", body: "Phone on the charger. Lights out soon." },
-    { id: "checkin", time: t(lo - 15), days: null, title: "Check-in", body: "60 seconds: log today and save your check-in." },
     { id: "weekly", time: "16:00", days: [0], title: "Weekly review", body: "See how this week stacks up." },
   ] as const;
   return all.filter((r) => s.reminders[r.id]).map((r) => ({ ...r, days: r.days ? [...r.days] : null }));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEMO_PLAN, add, buildPlan, focusTitle, mergeStates, reminderList, suggestFocusTitle, dailyStats, dayScore, discover, fisher, freshState, launchNext, life, normalize, pauseInfo, project,
+  DEMO_PLAN, add, buildPlan, lockInDate, schedule, focusTitle, mergeStates, reminderList, suggestFocusTitle, dailyStats, dayScore, discover, fisher, freshState, launchNext, life, normalize, pauseInfo, project,
   sampleState, scoreSummary, testPair, weeklyStats, welch, wk, type State,
 } from "../src/logic";
 
@@ -210,7 +210,7 @@ describe("reminders", () => {
     const s = plan(TODAY).settings;
     s.reminders.morning = false;
     const r = reminderList(s);
-    expect(r.map((x) => [x.id, x.time])).toEqual([["shutdown", "21:00"], ["checkin", "21:15"], ["weekly", "16:00"]]);
+    expect(r.map((x) => [x.id, x.time])).toEqual([["checkin", "20:45"], ["shutdown", "21:00"], ["weekly", "16:00"]]);
     expect(r.find((x) => x.id === "weekly")!.days).toEqual([0]);
   });
 });
@@ -223,5 +223,36 @@ describe("focus title", () => {
     expect(focusTitle(s)).toBe("Win the Morning");
     s.settings.focusTitle = "  ";
     expect(focusTitle(s)).toBe("Build the foundation");
+  });
+});
+
+describe("staying on course", () => {
+  it("locks a daily habit in once 17 of 21 days are reachable", () => {
+    const s = plan(TODAY);
+    const h = s.habits.find((x) => x.id === "lights")!;
+    expect(lockInDate(s, h, TODAY)).toBe(add(TODAY, 20)); // a perfect 21 days from today
+    // four misses still fit (17 of 21 allows 4)...
+    const start = add(TODAY, -6);
+    const s2 = withLogs(plan(start), "lights", start, "ynnnnyy");
+    const h2 = s2.habits.find((x) => x.id === "lights")!;
+    expect(lockInDate(s2, h2, TODAY)).toBe(add(start, 20));
+    // ...a fifth pushes it out until the first miss leaves the 21-day window
+    const s3 = withLogs(plan(start), "lights", start, "nnnnnyy");
+    expect(lockInDate(s3, s3.habits.find((x) => x.id === "lights")!, TODAY)).toBe(add(start, 21));
+  });
+  it("is already today when the habit is locked in", () => {
+    const start = add(TODAY, -20);
+    const s = withLogs(plan(start), "lights", start, "yyyyyyyyyyyyyyyyyyyyy");
+    expect(lockInDate(s, s.habits.find((x) => x.id === "lights")!, TODAY)).toBe(TODAY);
+  });
+  it("schedules queued items into slots as habits in focus lock in", () => {
+    const s = plan(TODAY);
+    const sc = schedule(s, TODAY, 2);
+    const cur = sc.items.filter((x) => x.current);
+    expect(cur.map((x) => x.h.id)).toEqual(["lights", "alcohol"]);
+    const next = sc.items.find((x) => !x.current)!;
+    expect(next.h.id).toBe("phone");
+    expect(next.start).toBe(add(TODAY, 20));
+    expect(sc.last >= next.end).toBe(true);
   });
 });
